@@ -1,0 +1,313 @@
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap');
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+:root {
+  --font-serif: 'Playfair Display', 'Georgia', serif;
+  --font-sans: 'Inter', 'Helvetica Neue', sans-serif;
+  --color-ink: #1a1814;
+  --color-text: #2c2925;
+  --color-muted: #5f5a50;
+  --color-faint: #8c887e;
+  --color-border: #e0ddd5;
+  --color-surface: #fcfbf9;
+  --color-card: #ffffff;
+  --color-accent: #f5f4f0;
+  --color-success: #2e7d32;
+  --color-success-bg: #e8f5e9;
+  --color-success-border: #c8e6c9;
+  --color-error: #c62828;
+  --color-error-bg: #ffebee;
+  --color-error-border: #ffcdd2;
+
+  font-family: var(--font-serif);
+  line-height: 1.6;
+  font-weight: 400;
+  color-scheme: light;
+  color: var(--color-text);
+  background-color: var(--color-surface);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-serif);
+  color: var(--color-ink);
+  font-weight: 400;
+  margin-top: 0;
+}
+
+a {
+  color: var(--color-muted);
+  text-decoration: none;
+  transition: color 0.2s;
+}
+a:hover {
+  color: var(--color-ink);
+}
+
+/* ---- Layout ---- */
+
+.container {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 2rem;
+  width: 100%;
+}
+
+.header {
+  border-bottom: 1px solid var(--color-border);
+  padding-bottom: 1rem;
+  margin-bottom: 2rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.brand {
+  font-family: var(--font-serif);
+  font-size: 1.6rem;
+  font-style: italic;
+  font-weight: 700;
+  text-decoration: none;
+  color: var(--color-ink);
+}
+
+.nav-links {
+  display: flex;
+  gap: 1.2rem;
+  align-items: center;
+}
+
+.nav-links a {
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.nav-user {
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  color: var(--color-faint);
+  font-weight: 400;
+}
+
+/* ---- Card ---- */
+
+.card {
+  background: var(--color-card);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  padding: 2rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+}
+
+/* ---- Buttons ---- */
+
+.btn {
+  display: inline-block;
+  background: var(--color-ink);
+  border: 1px solid var(--color-ink);
+  padding: 0.7rem 1.4rem;
+  color: white;
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  border-radius: 4px;
+  text-align: center;
+  transition: background 0.2s, color 0.2s;
+}
+.btn:hover { background: #000; color: #fff; }
+
+.btn-outline {
+  background: transparent;
+  color: var(--color-ink);
+}
+.btn-outline:hover {
+  background: var(--color-accent);
+  color: var(--color-ink);
+}
+
+.btn-sm {
+  padding: 0.45rem 1rem;
+  font-size: 0.8rem;
+}
+
+.btn-danger {
+  background: var(--color-error);
+  border-color: var(--color-error);
+}
+.btn-danger:hover {
+  background: #991e1e;
+}
+
+/* ---- Forms ---- */
+
+.input, .textarea, .select {
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  margin-bottom: 0.8rem;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface);
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  color: var(--color-text);
+  transition: border-color 0.2s;
+}
+.input:focus, .textarea:focus, .select:focus {
+  outline: none;
+  border-color: var(--color-muted);
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+.form-group label {
+  display: block;
+  font-family: var(--font-sans);
+  font-size: 0.8rem;
+  font-weight: 500;
+  margin-bottom: 0.4rem;
+  color: var(--color-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ---- Badges ---- */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 1.2rem;
+  border-radius: 6px;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.badge-success {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+  border: 1px solid var(--color-success-border);
+}
+.badge-error {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+  border: 1px solid var(--color-error-border);
+}
+
+/* ---- Timeline ---- */
+
+.timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  position: relative;
+}
+.timeline::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  left: 9px;
+  height: calc(100% - 20px);
+  width: 2px;
+  background: var(--color-border);
+}
+
+.timeline-item {
+  position: relative;
+  padding-left: 2rem;
+  margin-bottom: 1.5rem;
+}
+.timeline-item::before {
+  content: '';
+  position: absolute;
+  top: 6px;
+  left: 5px;
+  width: 10px;
+  height: 10px;
+  background: var(--color-ink);
+  border-radius: 50%;
+}
+
+.timeline-date {
+  font-family: var(--font-sans);
+  font-size: 0.82rem;
+  color: var(--color-faint);
+  margin-bottom: 0.15rem;
+}
+.timeline-title {
+  font-weight: 600;
+  font-family: var(--font-sans);
+  font-size: 0.95rem;
+}
+
+/* ---- Misc ---- */
+
+.detail-section {
+  background: var(--color-accent);
+  border-radius: 6px;
+  padding: 1.2rem;
+  font-family: var(--font-sans);
+  font-size: 0.9rem;
+  color: var(--color-muted);
+}
+
+.logout-btn {
+  background: none;
+  border: none;
+  font-family: var(--font-sans);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-error);
+  cursor: pointer;
+  padding: 0;
+}
+.logout-btn:hover { text-decoration: underline; }
+
+/* ---- Responsive ---- */
+
+@media (max-width: 768px) {
+  .container { padding: 1rem; }
+
+  .header {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .card-flex {
+    flex-direction: column !important;
+    align-items: center;
+  }
+
+  .action-row {
+    flex-direction: column !important;
+  }
+}

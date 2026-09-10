@@ -26,4 +26,4 @@ services:
         fromService:
           type: web
           name: craftproof-backend
-          envVarKey: RENDER_EXTERNAL_URL
+          property: url

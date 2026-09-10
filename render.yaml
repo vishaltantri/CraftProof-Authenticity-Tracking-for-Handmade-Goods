@@ -1,22 +1,19 @@
 services:
   - type: web
     name: craftproof-backend
-    env: python
+    runtime: python
     region: oregon # or frankfurt, ohio, singapore
     rootDirectory: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
-    envVars:
-      - key: PYTHON_VERSION
-        value: 3.10.0
 
   - type: web
     name: craftproof-frontend
-    env: static
+    runtime: static
     region: oregon
     rootDirectory: frontend
     buildCommand: npm install && npm run build
-    staticPublishPath: dist
+    staticPublishPath: ./dist
     routes:
       - type: rewrite
         source: /*

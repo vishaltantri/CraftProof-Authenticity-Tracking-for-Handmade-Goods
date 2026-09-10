@@ -2,16 +2,15 @@ services:
   - type: web
     name: craftproof-backend
     runtime: python
-    region: oregon # or frankfurt, ohio, singapore
-    rootDirectory: backend
+    region: oregon
+    rootDir: backend
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
 
   - type: web
     name: craftproof-frontend
     runtime: static
-    region: oregon
-    rootDirectory: frontend
+    rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     routes:
@@ -23,4 +22,4 @@ services:
         fromService:
           type: web
           name: craftproof-backend
-          property: url
+          envVarKey: RENDER_EXTERNAL_URL

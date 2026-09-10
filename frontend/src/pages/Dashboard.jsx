@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
 
-const API = 'http://localhost:8002'
+const API = import.meta.env.VITE_API_URL || 'http://localhost:8002'
 
 export default function Dashboard() {
   const navigate = useNavigate()

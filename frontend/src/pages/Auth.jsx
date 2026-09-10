@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 
-const API = 'http://localhost:8002'
+const API = import.meta.env.VITE_API_URL || 'http://localhost:8002'
 
 export default function Auth({ mode }) {
   const navigate = useNavigate()

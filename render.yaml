@@ -10,12 +10,13 @@ services:
       - key: PYTHON_VERSION
         value: 3.10.0
 
-  - type: static
+  - type: web
     name: craftproof-frontend
+    env: static
     region: oregon
     rootDirectory: frontend
     buildCommand: npm install && npm run build
-    outputDir: dist
+    staticPublishPath: dist
     routes:
       - type: rewrite
         source: /*

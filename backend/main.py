@@ -615,11 +615,28 @@ def get_certificate(code: str):
         piece_dict = dict(piece)
         piece_dict["maker_name"] = maker_name
 
+        # Physical clone status (plan W5): replay the certificate's most
+        # recent scan against its scan history so the PUBLIC certificate
+        # page can show the red banner — not just the verify-object call.
+        # Degrades to None (no banner) when there are no scans or the
+        # stored event template is gone; the chain verdict is unaffected.
+        clone_status = None
+        try:
+            from clone_detection import _load_events, _template_from_digest, detect_clone
+            events = _load_events(conn, piece["id"])
+            if events:
+                probe = _template_from_digest(conn, events[-1]["digest"])
+                if probe is not None:
+                    clone_status = detect_clone(conn, piece, probe)
+        except Exception:
+            clone_status = None
+
         return {
             "piece": piece_dict,
             "timeline": timeline,
             "verified": valid,
             "reason": reason,
+            "clone": clone_status,
             "ledger": {
                 "anchored_records": anchored,
                 "total_records": len(timeline),

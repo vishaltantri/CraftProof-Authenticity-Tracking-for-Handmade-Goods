@@ -48,7 +48,7 @@ function Hero() {
       <div className="cpl-hero-intro">
         <div className="cpl-pill">
           <span className="cpl-pill-dot" aria-hidden="true" />
-          <span>Sealed in the public ledger · Tamper-proof provenance</span>
+          <span>Sealed in the public ledger · Tamper-evident provenance</span>
         </div>
         <h1 className="cpl-display">Authenticity you can hold.</h1>
         <p className="cpl-body-lg">
@@ -418,8 +418,9 @@ function TrustPlacard() {
           <ShieldCheck size={180} className="cpl-trust-watermark" strokeWidth={1} aria-hidden="true" />
           <blockquote>
             “Every time a piece changes hands, the person handing it over digitally
-            confirms it — a tamper-proof mark that can't be forged or edited after the
-            fact. All confirmations are also sealed into a public ledger, so even
+            confirms it — a tamper-evident mark: any later attempt to alter that
+            confirmation is detected and shown, never silently accepted. All
+            confirmations are also sealed into a public ledger, so even
             CraftProof can't quietly alter a piece's history without it being detectable.”
           </blockquote>
           <div className="cpl-trust-attrib"><span>The CraftProof Trust Mandate</span></div>

@@ -95,6 +95,19 @@ export default function Certificate() {
           </div>
         )}
 
+        {/* Physical clone warning (plan W5): this tag has been scanned
+            alongside several different physical objects */}
+        {data.clone && data.clone.flagged && (
+          <div className="badge badge-error" style={{ fontSize: '0.95rem', padding: '0.8rem 1.5rem', marginTop: '0.8rem', flexDirection: 'column', display: 'inline-flex', maxWidth: '100%', textAlign: 'left' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <AlertTriangle size={20} /> POSSIBLE TAG CLONING DETECTED
+            </div>
+            <span style={{ fontSize: '0.8rem', marginTop: '0.4rem', fontWeight: 'normal' }}>
+              {data.clone.reason || 'This tag has been shown with several different objects.'} Do not trust the object this tag is attached to — check it in person with the maker.
+            </span>
+          </div>
+        )}
+
         {/* Public-ledger status */}
         {data.verified && ledger.total_records > 0 && (
           <div style={{ marginTop: '1rem', fontFamily: 'var(--font-sans)', fontSize: '0.85rem' }}>
@@ -170,7 +183,7 @@ export default function Certificate() {
         {showTech && (
           <div style={{ marginTop: '1rem', fontSize: '0.9rem', color: 'var(--color-muted)', fontFamily: 'var(--font-sans)', lineHeight: 1.7 }}>
             <p style={{ marginTop: 0 }}>
-              Every time this piece changed hands, the person handing it over digitally confirmed the transfer — like a tamper-proof signature that can't be forged or edited after the fact.
+              Every time this piece changed hands, the person handing it over digitally confirmed the transfer — like a tamper-evident signature: any later edit to that confirmation is caught and shown, rather than being impossible to attempt.
             </p>
             <p>
               All these confirmations are also recorded in a shared public ledger, so even we (CraftProof) can't quietly alter this history without it being detectable.

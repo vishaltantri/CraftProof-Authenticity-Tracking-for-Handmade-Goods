@@ -63,6 +63,12 @@ export default function Certificate() {
 
   const ledger = data.ledger || {}
 
+  // A cloned tag means we cannot vouch for the OBJECT, even though the
+  // recorded history is intact. The headline verdict must never read
+  // "verified authentic" in that state — that badge is exactly the
+  // false assurance this whole system exists to remove.
+  const cloned = Boolean(data.clone && data.clone.flagged)
+
   return (
     <div className="card" style={{ maxWidth: '620px', margin: '2rem auto', padding: '0', overflow: 'hidden' }}>
       {/* Header */}
@@ -80,11 +86,22 @@ export default function Certificate() {
           <p style={{ color: 'var(--color-faint)', fontSize: '0.9rem', marginBottom: '1.5rem' }}>{data.piece.description}</p>
         )}
 
-        {data.verified ? (
+        {data.verified && !cloned && (
           <div className="badge badge-success" style={{ fontSize: '1.05rem', padding: '0.8rem 1.8rem' }}>
             <CheckCircle size={20} /> VERIFIED AUTHENTIC
           </div>
-        ) : (
+        )}
+        {data.verified && cloned && (
+          <div className="badge badge-warning" style={{ fontSize: '1rem', padding: '0.8rem 1.5rem', flexDirection: 'column', display: 'inline-flex', maxWidth: '100%' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <AlertTriangle size={20} /> OBJECT NOT CONFIRMED
+            </div>
+            <span style={{ fontSize: '0.8rem', marginTop: '0.4rem', fontWeight: 'normal' }}>
+              The recorded history is unaltered, but we cannot confirm the object this tag is on is the original one.
+            </span>
+          </div>
+        )}
+        {!data.verified && (
           <div className="badge badge-error" style={{ fontSize: '1.05rem', padding: '0.8rem 1.8rem', flexDirection: 'column', display: 'inline-flex' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <AlertTriangle size={20} /> WARNING: ALTERED RECORD
@@ -97,13 +114,16 @@ export default function Certificate() {
 
         {/* Physical clone warning (plan W5): this tag has been scanned
             alongside several different physical objects */}
-        {data.clone && data.clone.flagged && (
+        {cloned && (
           <div className="badge badge-error" style={{ fontSize: '0.95rem', padding: '0.8rem 1.5rem', marginTop: '0.8rem', flexDirection: 'column', display: 'inline-flex', maxWidth: '100%', textAlign: 'left' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
               <AlertTriangle size={20} /> POSSIBLE TAG CLONING DETECTED
             </div>
             <span style={{ fontSize: '0.8rem', marginTop: '0.4rem', fontWeight: 'normal' }}>
-              {data.clone.reason || 'This tag has been shown with several different objects.'} Do not trust the object this tag is attached to — check it in person with the maker.
+              {data.clone.reason || 'This tag has been shown with several different objects.'}
+            </span>
+            <span style={{ fontSize: '0.8rem', marginTop: '0.2rem', fontWeight: 'normal' }}>
+              Do not trust the object this tag is attached to — check it in person with the maker.
             </span>
           </div>
         )}

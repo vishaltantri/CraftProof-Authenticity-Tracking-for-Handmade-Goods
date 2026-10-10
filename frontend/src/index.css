@@ -21,6 +21,9 @@
   --color-error: #c62828;
   --color-error-bg: #ffebee;
   --color-error-border: #ffcdd2;
+  --color-warning: #a35b00;
+  --color-warning-bg: #fff8e1;
+  --color-warning-border: #ffe0b2;
 
   font-family: var(--font-serif);
   line-height: 1.6;
@@ -221,6 +224,11 @@ a:hover {
   background: var(--color-error-bg);
   color: var(--color-error);
   border: 1px solid var(--color-error-border);
+}
+.badge-warning {
+  background: var(--color-warning-bg);
+  color: var(--color-warning);
+  border: 1px solid var(--color-warning-border);
 }
 
 /* ---- Timeline ---- */

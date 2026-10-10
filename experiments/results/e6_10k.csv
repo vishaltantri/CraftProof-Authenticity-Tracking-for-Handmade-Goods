@@ -1,0 +1,7 @@
+tier,op,p50_ms,p95_ms,n_bytes,extra
+10259,certificate_render,1.429,1.746,,max_hops=4
+10259,checkpoint_build,28.267,30.922,,root=c5ec9645e095… depth=14 leaves=10259
+10259,inclusion_proof_fetch,20.014,20.079,1460,proof_ok=True path_len=14
+10259,anchor_publish,2.095,2.095,,backend=local verified=True
+10259,template_lookup_indexed,0.003,0.005,,
+10259,template_lookup_linear_ablation,0.0,0.001,,templates_dir_entries=0

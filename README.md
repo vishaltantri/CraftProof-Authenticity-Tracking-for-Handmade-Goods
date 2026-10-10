@@ -1,6 +1,12 @@
 # CraftProof — Authenticity Tracking for Handmade Goods
 
-A full-stack web application that lets artisans (potters, woodworkers, jewelers, painters) create tamper-proof digital certificates for their handmade pieces. When a piece is sold to a shop/gallery and then to a final customer, each transfer is cryptographically recorded. Anyone can scan a QR code and instantly verify: *who made it, its full ownership history, and whether it's genuinely authentic.*
+A full-stack web application that lets artisans (potters, woodworkers, jewelers, painters) create tamper-evident digital certificates for their handmade pieces. When a piece is sold to a shop/gallery and then to a final customer, each transfer is cryptographically recorded. Anyone can scan a QR code and instantly verify: *who made it, its full ownership history, and whether it's genuinely authentic.*
+
+> **Disclaimer:** Nothing in CraftProof makes history impossible to change — an attacker with
+database access can always alter the copy of the data they hold (tamper-*proof* is not achievable
+here). What the system guarantees is tamper-*evidence*: any alteration shows up as an explicit,
+verifiable failure on the certificate, in the independent verifier, and — for latched checkpoints —
+against an external anchor.
 
 > **Golden Rule:** Users never see the words "hash," "signature," "Merkle," or "cryptography." They only see: "Verified ✓", "Certificate", "Ownership History." All the cryptography happens invisibly underneath.
 
@@ -19,7 +25,18 @@ craftproof/
 │   ├── verify_cli.py     # Independent verifier — re-checks a certificate without trusting the server
 │   ├── test_crypto.py    # Tests for the crypto engine and the attacks it must catch
 │   ├── seed.py           # Demo data: makers, galleries, pieces mid-journey
-│   └── tamper_demo.py    # Admin script to simulate database tampering
+│   ├── tamper_demo.py    # Admin script to simulate database tampering
+│   ├── keystore.py       # Password-encrypted signing keys (AES-256-GCM envelope; Argon2id or PBKDF2)
+│   ├── security_config.py# JWT secret / demo-mode configuration with fail-late startup gate
+│   ├── fingerprint.py    # Physical "paper fingerprint" descriptors + template store (CraftProof 2.0)
+│   ├── clone_detection.py# Same-code history cross-check: catches re-scans of a cloned tag (2.0)
+│   ├── anchoring.py      # External anchoring of Merkle roots: RFC 3161 TSA or Ed25519 journal (2.0)
+│   └── test_*.py         # Cryptographic, fingerprint, clone-detection, anchoring test suites
+├── experiments/          # Research harnesses (see experiments/data/README.md)
+│   ├── harness.py        # Attack-matrix harness: plan's attacks A–J × architectures A/B/C/D/D+fp
+│   ├── benchmarks.py     # E5 latency + E6 scaling benchmarks → CSV
+│   ├── build_pairs.py    # Dataset kit: manifest.csv → experiment pair files
+│   └── data/README.md    # Photography checklist, consent template, manifest spec
 └── frontend/             # React + Vite SPA
     └── src/
         ├── App.jsx           # Router + auth-aware navigation
@@ -41,6 +58,10 @@ craftproof/
 | **Digital Signatures** | Ed25519 — each transfer signed by outgoing custodian | "✓ Confirmed by [Name]" |
 | **Merkle Proofs** | Binary Merkle tree over all custody records, published as numbered checkpoints | "✓ Sealed in the public ledger" |
 | **Tamper Detection** | Hash recomputation + signature verification on page load | Green badge or red warning |
+| **Key Protection** | Password-encrypted private keys (AES-256-GCM envelope; Argon2id or 1.2M-iteration PBKDF2) + in-memory unlock cache | (invisible) |
+| **External Anchoring** | Checkpoint roots timestamped by an RFC 3161 TSA, or Ed25519-signed journal copy outside the DB | "✓ Sealed and timestamped" |
+| **Physical Fingerprint** | Photo descriptors of the object bound into the signed genesis record (`cm` commitment) | "✓ Object matches" |
+| **Clone Detection** | Every scan is cross-checked against the certificate's scan history | Red banner: possible forged copy |
 
 ## 🚀 Quick Start
 
@@ -54,7 +75,7 @@ craftproof/
 cd backend
 python3 -m venv venv
 source venv/bin/activate
-pip install fastapi uvicorn cryptography pyjwt bcrypt pydantic
+pip install -r requirements.txt
 uvicorn main:app --port 8002
 ```
 
@@ -123,9 +144,15 @@ Scan the QR code → See a green "✓ VERIFIED AUTHENTIC" badge + full ownership
 
 ## 🧪 Tamper Detection Demo
 
+The tamper endpoint exists for demos only — it is disabled unless the server was explicitly
+started with `CRAFTPROOF_ALLOW_INSECURE_DEMO=true` (it answers `403` otherwise):
+
 ```bash
 cd backend
 source venv/bin/activate
+CRAFTPROOF_ALLOW_INSECURE_DEMO=true python3 -m uvicorn main:app --port 8002 &
+# ... then POST /admin/tamper/{piece_id}/{seq}
+# or use the offline script against the DB directly:
 python3 tamper_demo.py 1 0 "FORGED: not actually handmade"
 ```
 
@@ -154,13 +181,56 @@ Record 0: 3 -> Self  (2026-06-12T08:08:19+00:00)
 | `POST` | `/pieces` | Yes | Register a new piece + genesis record |
 | `GET` | `/pieces/mine` | Yes | List pieces you currently hold |
 | `GET` | `/pieces/made` | Yes | List pieces you created, including ones handed on |
+| `POST` | `/pieces` | Yes | Register a new piece (optionally with its fingerprint commitment) |
+| `POST` | `/pieces/with-fingerprint` | Yes | Register with a physical-fingerprint commitment (64-hex digest) |
 | `POST` | `/pieces/{id}/transfer` | Yes | Transfer to another user or external buyer |
-| `GET` | `/c/{code}` | No | Public certificate with server-side verification, per-step results and ledger status |
-| `GET` | `/c/{code}/proof` | No | Raw signed fields, hashes, public keys and Merkle proofs, for independent verification |
+| `POST` | `/pieces/{code}/verify-object` | No | Compare a freshly captured object fingerprint against the enrolled one; records the scan and runs clone detection |
+| `GET` | `/c/{code}` | No | Public certificate with server-side verification, per-step results, ledger status and any clone warning |
+| `GET` | `/c/{code}/proof` | No | Raw signed fields, hashes, public keys and Merkle proofs, for independent verification (the fingerprint commitment is included in the signed fields when present) |
 | `GET` | `/ledger/checkpoints` | No | Published Merkle roots with timestamps |
 | `POST` | `/ledger/checkpoint` | No | Seal every record so far under a new Merkle root |
 | `GET` | `/users` | No | List registered users |
-| `POST` | `/admin/tamper/{piece_id}/{seq}` | No | Demo: silently alter a record |
+| `POST` | `/admin/tamper/{piece_id}/{seq}` | — | Demo only: silently alter a record. Answers 403 unless `CRAFTPROOF_ALLOW_INSECURE_DEMO=true` |
+
+## ⚙️ Configuration (environment variables)
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `CRAFTPROOF_DB` | `backend/craftproof.db` | SQLite database path |
+| `JWT_SECRET_KEY` | — (**required**) | Secret for signing session tokens. Startup fails (503 on auth routes) unless a ≥32-char secret is set |
+| `CRAFTPROOF_ALLOW_INSECURE_DEMO` | unset | Set to `true` ONLY for throwaway demos: installs a fixed demo JWT secret + enables `/admin/tamper`. Never in production |
+| `JWT_ALGORITHM` | `HS256` | Token signing algorithm |
+| `CRAFTPROOF_MATCH_THRESHOLD` | `0.70` | Object-fingerprint match threshold |
+| `CRAFTPROOF_TEMPLATES_DIR` | `backend/templates` | Where enrolled object templates are stored |
+| `CRAFTPROOF_ANCHOR_BACKEND` | `local` | `local` = Ed25519-signed journal; `freetsa` = real RFC 3161 timestamping |
+| `CRAFTPROOF_TSA_URL` | `https://freetsa.org/tsr` | TSA endpoint (freetsa backend) |
+| `CRAFTPROOF_ANCHOR_KEY` / `CRAFTPROOF_ANCHOR_JOURNAL` | `backend/anchoring/…` | Anchor key + journal paths — keep outside the DB volume so a DB exfiltration cannot rewrite history |
+| `KEYSTORE_KDF`/envelope | auto | Key envelopes use Argon2id when `argon2-cffi` is installed, else PBKDF2-SHA256 (1.2M iterations) |
+
+## 🔬 Research experiments (CraftProof 2.0)
+
+The `experiments/` directory holds the paper's reproducible harnesses
+(specified fully in `craftproof_research_paper_plan.md`):
+
+```bash
+cd backend && source venv/bin/activate
+# E1: attack matrix (attacks A–J against architectures A/B/C/D/D+fp)
+python3 ../experiments/harness.py --arch all --attack all --repetitions 3 \
+    --out ../experiments/results/e1_results.jsonl \
+    --summary-out ../experiments/results/e1_summary.json
+# E5+E6: latency + scaling benchmarks → CSV
+python3 ../experiments/benchmarks.py --tiers 1000 10000 \
+    --out ../experiments/results/e5e6.csv
+# E2 dataset kit: photography checklist + manifest → pair files
+python3 ../experiments/build_pairs.py \
+    --manifest ../experiments/data/manifest.csv \
+    --photos-root ../experiments/data --out ../experiments/data
+```
+
+The attack harness produces the paper's defense matrix as machine-readable JSON —
+see its module docstring for the architecture mapping. Test suites:
+`test_crypto.py` (12), `test_fingerprint.py` (7), `test_clone_detection.py` (6),
+`test_anchoring.py` (8) — run each with plain `python3 <file>`.
 
 ## 📄 License
 

@@ -4,14 +4,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 import string, random
+
 from auth import get_password_hash, verify_password, create_access_token, get_current_user_id
 from database import get_db
 from crypto_utils import generate_keypair, pubkey_to_hex, sign
+from keystore import encrypt_private_key, is_envelope, KeyStore
+from security_config import require_jwt_secret, jwt_config_error, INSECURE_DEMO_MODE
 from core import verify_chain_detailed, create_checkpoint, list_checkpoints, get_inclusion_proof
 from record import CustodyRecord, GENESIS_HASH
 from seed import seed as seed_demo_data
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+_DEMO_MODE_ACTIVE = False   # set at startup when running with a demo-secret JWT
 
 
 def seed_demo_if_empty():
@@ -30,14 +35,76 @@ def seed_demo_if_empty():
 
 @asynccontextmanager
 async def lifespan(app):
+    global _DEMO_MODE_ACTIVE
+    # Fail fast on a missing/weak JWT secret: this is the deployment gate.
+    # (The auth helpers degrade gracefully at import so seeding and the test
+    # suite can run without an environment; a real API server must not.)
+    require_jwt_secret()
+    if INSECURE_DEMO_MODE:
+        _DEMO_MODE_ACTIVE = True
+        print(
+            "*** DEMO MODE: fixed demo JWT secret in use; the /admin tamper-demo "
+            "endpoint is enabled for the viva demo only. ***"
+        )
     seed_demo_if_empty()
     yield
+
+
+_KEYSTORE = KeyStore(ttl=900)
+
+
+def _unlock_seed(user_id: int, user_row, password: str | None) -> bytes:
+    """Return the user's raw Ed25519 seed, unlocking the key envelope.
+
+    Order of preference:
+      1. the in-memory keystore cache (no KDF work)
+      2. decrypt the AEAD envelope with the caller-supplied password
+         (signup/fragment flows that have the plaintext password)
+      3. legacy rows from before the envelope change, stored as raw hex —
+         still accepted for signing, but flagged so operators know to
+         re-encrypt on next password change.
+
+    When a cached unlock is missing and no password is available, we raise
+    423 Locked rather than fail open: the user must re-login (which re-arms
+    the keystore) before signing custody transfers.
+    """
+    cached = _KEYSTORE.get(user_id)
+    if cached is not None:
+        return cached
+
+    enc = user_row["encrypted_privkey"]
+    if is_envelope(enc):
+        if not password:
+            raise HTTPException(
+                status_code=423,
+                detail="Your signing key is locked — please log in again to continue.",
+            )
+        seed_bytes = _decrypt_privkey_with_password(enc, password)
+        _KEYSTORE.remember(user_id, seed_bytes)
+        return seed_bytes
+
+    # Legacy plain-hex storage (pre-envelope). Accept it, but be honest that
+    # it is not protected: anything that can read the DB could have used it.
+    seed_bytes = bytes.fromhex(enc)
+    if len(seed_bytes) != 32:
+        raise HTTPException(status_code=500, detail="Corrupt signing key in database")
+    print(f"[keys] user {user_id} still uses a legacy raw-hex signing key — consider re-encrypting")
+    _KEYSTORE.remember(user_id, seed_bytes)
+    return seed_bytes
+
+
+def _decrypt_privkey_with_password(envelope: str, password: str) -> bytes:
+    from keystore import decrypt_private_key
+    try:
+        return decrypt_private_key(envelope, password)
+    except ValueError:
+        raise HTTPException(status_code=500, detail="Unable to unlock your signing key")
 
 
 app = FastAPI(
     title="CraftProof API",
     description=(
-        "Public API for CraftProof — tamper-proof authenticity certificates for "
+        "Public API for CraftProof — tamper-evident authenticity certificates for "
         "handmade goods. Verification endpoints are open and need no API key; "
         "write endpoints (registering pieces, transfers) need a bearer token from "
         "POST /auth/login. Interactive docs: /docs — raw schema: /openapi.json"
@@ -74,11 +141,38 @@ class PieceRequest(BaseModel):
     title: str
     description: Optional[str] = ""
     materials: Optional[str] = ""
+    maker_statement: Optional[str] = ""
+    fingerprint_commitment: Optional[str] = None
 
 class TransferRequest(BaseModel):
     to_user_id: Optional[int] = None
     to_name: Optional[str] = None
     note: Optional[str] = ""
+
+class FingerprintPieceRequest(BaseModel):
+    """Piece registration carrying an enrolled physical fingerprint.
+
+    descriptor_b64 is the serialize_template() payload of the ENROLMENT
+    template (built from the registration photos). The server recomputes
+    its digest and requires it to equal fingerprint_commitment, so the
+    template that will later be matched IS the template the genesis record
+    signed — no gap between what is committed and what is compared.
+    """
+    title: str
+    description: Optional[str] = ""
+    materials: Optional[str] = ""
+    maker_statement: Optional[str] = ""
+    fingerprint_commitment: str
+    descriptor_b64: Optional[str] = None
+
+class VerifyObjectRequest(BaseModel):
+    """A base64(urlsafe) fingerprint template from a verification capture.
+
+    The server never stores this payload beyond the similarity/clone-decision
+    event record; only the enrollment-time template (bound to the genesis
+    custody record's commitment) persists.
+    """
+    descriptor_b64: str
 
 # ---------- Helpers ----------
 
@@ -88,6 +182,40 @@ def generate_certificate_code(conn):
         code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=8))
         if not conn.execute("SELECT 1 FROM pieces WHERE certificate_code = ?", (code,)).fetchone():
             return code
+
+
+def _seed_user(conn, user_id: int, password: str | None):
+    """Resolve the signing seed for user_id, arming the keystore when the
+    password is known (login / signup) and deferring to the cache otherwise."""
+    user = conn.execute(
+        "SELECT encrypted_privkey FROM users WHERE id = ?", (user_id,)
+    ).fetchone()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    enc = user["encrypted_privkey"]
+    cached = _KEYSTORE.get(user_id)
+    if cached is not None:
+        return cached
+    if is_envelope(enc):
+        if not password:
+            raise HTTPException(
+                status_code=423,
+                detail="Your signing key is locked — please log in again to continue.",
+            )
+        from keystore import decrypt_private_key
+        try:
+            seed_bytes = decrypt_private_key(enc, password)
+        except ValueError:
+            raise HTTPException(status_code=500, detail="Unable to unlock your signing key")
+        _KEYSTORE.remember(user_id, seed_bytes)
+        return seed_bytes
+    # Legacy raw-hex row (pre-envelope). Accepted, flagged honestly.
+    seed_bytes = bytes.fromhex(enc)
+    if len(seed_bytes) != 32:
+        raise HTTPException(status_code=500, detail="Corrupt signing key in database")
+    print(f"[keys] user {user_id} still uses a legacy raw-hex signing key — consider re-encrypting")
+    _KEYSTORE.remember(user_id, seed_bytes)
+    return seed_bytes
 
 # ---------- Auth ----------
 
@@ -108,11 +236,14 @@ def signup(req: SignupRequest):
             raise HTTPException(status_code=400, detail="Email already registered")
 
         sk, pk = generate_keypair()
-        sk_hex = sk.private_bytes(
+        sk_raw = sk.private_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PrivateFormat.Raw,
             encryption_algorithm=serialization.NoEncryption()
-        ).hex()
+        )
+        # AEAD envelope under the user's own password — losing the password
+        # means losing the signing key, by design (no server override path).
+        enc = encrypt_private_key(sk_raw, req.password)
         pk_hex = pubkey_to_hex(pk)
 
         hashed_pw = get_password_hash(req.password)
@@ -120,10 +251,11 @@ def signup(req: SignupRequest):
         c = conn.cursor()
         c.execute(
             "INSERT INTO users (name, email, password_hash, role, shop_name, public_key, encrypted_privkey) VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (req.name.strip(), email, hashed_pw, req.role, req.shop_name, pk_hex, sk_hex)
+            (req.name.strip(), email, hashed_pw, req.role, req.shop_name, pk_hex, enc)
         )
         conn.commit()
         user_id = c.lastrowid
+        _KEYSTORE.remember(user_id, sk_raw)
 
         token = create_access_token({"sub": user_id})
         return {"access_token": token, "user_id": user_id, "name": req.name, "role": req.role}
@@ -139,6 +271,12 @@ def login(req: LoginRequest):
             raise HTTPException(status_code=401, detail="Invalid credentials")
 
         token = create_access_token({"sub": user["id"]})
+        # With the plaintext password in hand, arm the keystore for this
+        # session so subsequent transfers can sign without re-prompting.
+        try:
+            _seed_user(conn, user["id"], req.password)
+        except HTTPException:
+            pass  # legacy/corrupt rows must not block a normal login
         return {"access_token": token, "user_id": user["id"], "name": user["name"], "role": user["role"]}
     finally:
         conn.close()
@@ -159,31 +297,121 @@ def create_piece(req: PieceRequest, user_id: int = Depends(get_current_user_id))
     conn = get_db()
     try:
         code = generate_certificate_code(conn)
-
-        c = conn.cursor()
-        c.execute(
-            "INSERT INTO pieces (certificate_code, title, description, materials, made_by, current_owner_id) VALUES (?, ?, ?, ?, ?, ?)",
-            (code, req.title, req.description, req.materials, user_id, user_id)
+        piece_id = _insert_piece_with_genesis(
+            conn,
+            certificate_code=code,
+            title=req.title,
+            description=req.description or "",
+            materials=req.materials or "",
+            made_by=user_id,
+            maker_statement=req.maker_statement or "",
+            commitment=req.fingerprint_commitment,
         )
-        piece_id = c.lastrowid
-
-        # Genesis custody record
-        user = conn.execute("SELECT encrypted_privkey FROM users WHERE id = ?", (user_id,)).fetchone()
-        sk = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(user["encrypted_privkey"]))
-
-        rec = CustodyRecord(piece_id, 0, user_id, user_id, "Self", "Piece created", GENESIS_HASH)
-        rec_hash = rec.compute_hash()
-        sig = sign(sk, bytes.fromhex(rec_hash)).hex()
-
-        c.execute(
-            "INSERT INTO custody_records (piece_id, seq_index, from_user_id, to_user_id, to_name, note, timestamp, prev_hash, record_hash, signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (piece_id, 0, user_id, user_id, "Self", "Piece created", rec.timestamp, GENESIS_HASH, rec_hash, sig)
-        )
-
         conn.commit()
         return {"status": "success", "certificate_code": code, "piece_id": piece_id}
     finally:
         conn.close()
+
+
+@app.post("/pieces/with-fingerprint", status_code=201)
+def create_piece_with_fingerprint(
+    req: FingerprintPieceRequest,
+    user_id: int = Depends(get_current_user_id),
+):
+    """Register a piece carrying a physical-fingerprint commitment.
+
+    The commitment is a hex SHA-256 digest over the canonical JSON summary of
+    the extracted template (feature_flags + fields + quantised descriptors).
+    Format is defined in fingerprint.py; nobody needs more than the digest
+    here, so the API never sees the raw template.
+    """
+    import binascii
+    try:
+        bytes.fromhex(req.fingerprint_commitment)
+    except (ValueError, binascii.Error):
+        raise HTTPException(status_code=400, detail="fingerprint_commitment must be hex")
+    if len(req.fingerprint_commitment) != 64:
+        raise HTTPException(status_code=400, detail="fingerprint_commitment must be a 64-hex SHA-256 digest")
+    if req.fingerprint_commitment != req.fingerprint_commitment.lower():
+        raise HTTPException(status_code=400, detail="fingerprint_commitment must be lowercase hex")
+
+    # When the enrolment template is supplied, its digest must equal the
+    # commitment — this is what makes the signed 'cm' field describe the
+    # template actually used for later matching.
+    enrolled_template = None
+    if req.descriptor_b64:
+        import base64 as _b64
+        import fingerprint
+        try:
+            enrolled_template = fingerprint.deserialize_template(
+                _b64.urlsafe_b64decode(req.descriptor_b64))
+        except Exception:
+            raise HTTPException(status_code=400,
+                                detail="descriptor_b64 is not a valid fingerprint payload")
+        digest = fingerprint.template_digest(enrolled_template)
+        if digest != req.fingerprint_commitment:
+            raise HTTPException(
+                status_code=400,
+                detail=("descriptor_b64 digest does not match fingerprint_commitment "
+                        f"({digest}); enroll with the same template you commit to"))
+
+    conn = get_db()
+    try:
+        code = generate_certificate_code(conn)
+        piece_id = _insert_piece_with_genesis(
+            conn,
+            certificate_code=code,
+            title=req.title,
+            description=req.description or "",
+            materials=req.materials or "",
+            made_by=user_id,
+            maker_statement=req.maker_statement or "",
+            commitment=req.fingerprint_commitment,
+        )
+        if enrolled_template is not None:
+            import fingerprint
+            fingerprint.store_template(piece_id, enrolled_template)
+        conn.commit()
+        return (
+            {"status": "success", "certificate_code": code, "piece_id": piece_id,
+             "fingerprint_commitment": req.fingerprint_commitment}
+        )
+    finally:
+        conn.close()
+
+
+def _insert_piece_with_genesis(
+    conn,
+    certificate_code: str,
+    title: str,
+    description: str,
+    materials: str,
+    made_by: int,
+    maker_statement: str,
+    commitment: Optional[str],
+) -> int:
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO pieces (certificate_code, title, description, materials, made_by, current_owner_id, fingerprint_commitment) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (certificate_code, title, description, materials, made_by, made_by, commitment)
+    )
+    piece_id = c.lastrowid
+    genesis = CustodyRecord(
+        piece_id, 0, made_by, made_by, "Self", maker_statement or "Piece created", GENESIS_HASH,
+    )
+    if commitment:
+        # cm: prefix keeps the plain-record and commitment schemas unambiguous —
+        # same key set, one extra deliberately-named field.
+        genesis.add_field("cm", commitment)
+    rec_hash = genesis.compute_hash()
+    sk = Ed25519PrivateKey.from_private_bytes(_seed_user(conn, made_by, None))
+    sig = sign(sk, bytes.fromhex(rec_hash)).hex()
+    c.execute(
+        "INSERT INTO custody_records (piece_id, seq_index, from_user_id, to_user_id, to_name, note, timestamp, prev_hash, record_hash, signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (piece_id, 0, made_by, made_by, "Self", genesis.note, genesis.timestamp, GENESIS_HASH, rec_hash, sig)
+    )
+    return piece_id
+
 
 @app.get("/pieces/mine")
 def get_my_pieces(user_id: int = Depends(get_current_user_id)):
@@ -225,6 +453,68 @@ def get_pieces_i_made(user_id: int = Depends(get_current_user_id)):
     finally:
         conn.close()
 
+# ---------- Physical verification (fingerprint + clone detection) ----------
+
+@app.post("/pieces/{code}/verify-object", tags=["Physical"],
+          summary="Compare a captured physical template against the enrolled fingerprint")
+def verify_object(code: str, req: VerifyObjectRequest):
+    """Full physical–digital verification for a piece.
+
+    Workflow: capture photos of the object → build a probe template locally
+    (fingerprint.py) → send serialize_template(probe) as descriptor_b64.
+    The server compares against the enrolled template for this certificate,
+    records a verification event, and runs clone detection (same code,
+    mismatching object → the tag is likely cloned). Returns ``enrolled``,
+    ``match`` (None when nothing enrolled), ``similarity``, ``threshold``,
+    ``clone_check`` and a plain-language ``verdict`` for UI presentation.
+    """
+    import base64 as _b64
+    import fingerprint
+    from clone_detection import detect_clone, record_event
+
+    conn = get_db()
+    try:
+        piece = _load_certificate(conn, code)
+        try:
+            probe = fingerprint.deserialize_template(_b64.urlsafe_b64decode(req.descriptor_b64))
+        except Exception:
+            raise HTTPException(status_code=400, detail="descriptor_b64 is not a valid fingerprint payload")
+
+        similarity = None
+        match = None
+        if piece["fingerprint_commitment"]:
+            stored = fingerprint.load_template_by_piece(piece["id"])
+            if stored is None:
+                raise HTTPException(
+                    status_code=500,
+                    detail="Fingerprint committed but template missing — verification unavailable for this piece",
+                )
+            similarity = fingerprint.template_similarity(stored, probe)
+            match = similarity >= fingerprint.match_threshold()
+            verdict = (
+                "The object matches this certificate's enrolled fingerprint"
+                if match else
+                "The object does NOT match this certificate's enrolled fingerprint"
+            )
+        else:
+            verdict = ("No fingerprint is enrolled for this piece; "
+                       "only the digital history can be verified")
+
+        # Record the event, then run clone detection across this code's history.
+        record_event(conn, piece, similarity, match, probe)
+        clone = detect_clone(conn, piece, probe)
+        conn.commit()
+        return {
+            "enrolled": bool(piece["fingerprint_commitment"]),
+            "match": match,
+            "similarity": similarity,
+            "threshold": fingerprint.match_threshold() if piece["fingerprint_commitment"] else None,
+            "clone_check": clone,
+            "verdict": verdict,
+        }
+    finally:
+        conn.close()
+
 # ---------- Transfer ----------
 
 @app.post("/pieces/{piece_id}/transfer")
@@ -251,8 +541,7 @@ def transfer_piece(piece_id: int, req: TransferRequest, user_id: int = Depends(g
         seq_index = last_rec["seq_index"] + 1
         prev_hash = last_rec["record_hash"]
 
-        user = conn.execute("SELECT encrypted_privkey FROM users WHERE id = ?", (user_id,)).fetchone()
-        sk = Ed25519PrivateKey.from_private_bytes(bytes.fromhex(user["encrypted_privkey"]))
+        sk = Ed25519PrivateKey.from_private_bytes(_seed_user(conn, user_id, None))
 
         to_name = req.to_name or "Unknown buyer"
         rec = CustodyRecord(piece_id, seq_index, user_id, req.to_user_id, to_name, req.note or "", prev_hash)
@@ -262,7 +551,7 @@ def transfer_piece(piece_id: int, req: TransferRequest, user_id: int = Depends(g
         c = conn.cursor()
         c.execute(
             "INSERT INTO custody_records (piece_id, seq_index, from_user_id, to_user_id, to_name, note, timestamp, prev_hash, record_hash, signature) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (piece_id, seq_index, user_id, req.to_user_id, to_name, req.note or "", rec.timestamp, prev_hash, rec_hash, sig)
+            (piece_id, seq_index, user_id, req.to_user_id, to_name, rec.note, rec.timestamp, prev_hash, rec_hash, sig)
         )
 
         if req.to_user_id:
@@ -358,18 +647,27 @@ def get_certificate_proof(code: str):
         out = []
         for r in records:
             signer = conn.execute("SELECT name, public_key FROM users WHERE id = ?", (r["from_user_id"],)).fetchone()
+            signed_fields = {
+                "piece_id": r["piece_id"],
+                "seq_index": r["seq_index"],
+                "from_user_id": r["from_user_id"],
+                "to_user_id": r["to_user_id"],
+                "to_name": r["to_name"],
+                "note": r["note"],
+                "timestamp": r["timestamp"],
+                "prev_hash": r["prev_hash"],
+            }
+            # A fingerprint-committed genesis was signed over one extra 'cm'
+            # field. Include it exactly when it reproduces the stored hash so
+            # pre-commitment chains (and any legacy consumer) stay verifiable.
+            if r["seq_index"] == 0 and piece["fingerprint_commitment"]:
+                from crypto_utils import canonical_json, sha256 as _sha256
+                with_cm = dict(signed_fields, cm=piece["fingerprint_commitment"])
+                if _sha256(canonical_json(with_cm)).hex() == r["record_hash"]:
+                    signed_fields = with_cm
             out.append({
-                # These eight fields, canonically JSON-encoded, are what gets hashed.
-                "signed_fields": {
-                    "piece_id": r["piece_id"],
-                    "seq_index": r["seq_index"],
-                    "from_user_id": r["from_user_id"],
-                    "to_user_id": r["to_user_id"],
-                    "to_name": r["to_name"],
-                    "note": r["note"],
-                    "timestamp": r["timestamp"],
-                    "prev_hash": r["prev_hash"],
-                },
+                # Canonical JSON of these fields is what gets hashed.
+                "signed_fields": signed_fields,
                 "record_hash": r["record_hash"],
                 "signature": r["signature"],
                 "signer": {
@@ -468,17 +766,44 @@ def get_checkpoints():
 
 @app.post("/ledger/checkpoint")
 def publish_checkpoint():
-    """Seal every record recorded so far under a single Merkle root."""
+    """Seal every record so far under a single Merkle root, and anchor it.
+
+    Anchoring (anchoring.py, plan W6) is what turns a locally stored root
+    into PUBLIC evidence: the local backend signs it with an Ed25519 journal
+    key whose private half never lives in the custody database; the freetsa
+    backend gets an RFC 3161 token from an independent TSA. The checkpoint
+    below reports whether the anchor step succeeded.
+    """
     result = create_checkpoint()
     if result is None:
         raise HTTPException(status_code=400, detail="Nothing to checkpoint yet")
+    if result.get("new", False):
+        import anchoring
+        receipt = anchoring.anchor_root(result["root_hash"], result["batch_index"],
+                                       result["record_count"])
+        result["anchor"] = {
+            "backend": receipt["backend"],
+            "anchored_at": receipt["anchored_at"],
+        }
+        if receipt["backend"] == "local":
+            result["anchor"]["verifiable"] = anchoring.verify_receipt(receipt)
     return result
 
-# ---------- Tamper endpoint (admin/demo only) ----------
+# ---------- Tamper endpoint (demo discipline) ----------
 
 @app.post("/admin/tamper/{piece_id}/{seq_index}")
 def tamper_record(piece_id: int, seq_index: int, new_note: str = "FORGED"):
-    """Demo-only: directly alter a record's note without updating the hash/signature."""
+    """Demo-only: directly alter a record's note without updating the hash/signature.
+
+    Deliberately refused unless the server is running in insecure-demo mode —
+    this endpoint exists for the viva tamper demonstration and would otherwise
+    hand every visitor a free database-write primitive (CWE-306).
+    """
+    if not _DEMO_MODE_ACTIVE:
+        raise HTTPException(
+            status_code=403,
+            detail="Demo-only endpoint — enable insecure demo mode (CRAFTPROOF_ALLOW_INSECURE_DEMO=true) to use it",
+        )
     conn = get_db()
     try:
         conn.execute(

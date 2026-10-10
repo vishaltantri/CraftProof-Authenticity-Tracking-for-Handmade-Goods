@@ -61,6 +61,28 @@ def init_db():
     )
     ''')
 
+    # Physical-fingerprint commitments (W4): a piece may carry the SHA-256
+    # digest of its enrolled physical template. NULL = legacy piece with no
+    # fingerprint; verification falls back to the digital-history-only path.
+    def _add_column_if_missing(table: str, column: str, decl: str):
+        cols = [r[1] for r in c.execute(f"PRAGMA table_info({table})").fetchall()]
+        if column not in cols:
+            c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {decl}")
+
+    _add_column_if_missing('pieces', 'fingerprint_commitment', 'VARCHAR(64)')
+
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS verification_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        piece_id INTEGER NOT NULL REFERENCES pieces(id),
+        certificate_code VARCHAR(16) NOT NULL,
+        verified_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        similarity REAL,
+        matched INTEGER,
+        impression TEXT
+    )
+    ''')
+
     c.execute('''
     CREATE TABLE IF NOT EXISTS merkle_batches (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

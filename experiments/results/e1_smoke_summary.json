@@ -1,0 +1,400 @@
+{
+  "A:A": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "A:B": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "A:C": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "A:D": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "A:E": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "A:F": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "A:G": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "A:H": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "A:I": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "A:J": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "B:A": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "hash"
+    ],
+    "n": 3
+  },
+  "B:B": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "B:C": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "linkage"
+    ],
+    "n": 3
+  },
+  "B:D": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "hash"
+    ],
+    "n": 3
+  },
+  "B:E": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "hash"
+    ],
+    "n": 3
+  },
+  "B:F": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "B:G": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "B:H": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "B:I": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "B:J": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "C:A": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "hash"
+    ],
+    "n": 3
+  },
+  "C:B": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "signature"
+    ],
+    "n": 3
+  },
+  "C:C": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "linkage"
+    ],
+    "n": 3
+  },
+  "C:D": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "hash"
+    ],
+    "n": 3
+  },
+  "C:E": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "hash"
+    ],
+    "n": 3
+  },
+  "C:F": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "C:G": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "C:H": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "C:I": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "C:J": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "D+fp:A": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "hash"
+    ],
+    "n": 3
+  },
+  "D+fp:B": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "signature"
+    ],
+    "n": 3
+  },
+  "D+fp:C": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "linkage"
+    ],
+    "n": 3
+  },
+  "D+fp:D": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "hash"
+    ],
+    "n": 3
+  },
+  "D+fp:E": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "hash"
+    ],
+    "n": 3
+  },
+  "D+fp:F": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "fingerprint"
+    ],
+    "n": 3
+  },
+  "D+fp:G": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "fingerprint"
+    ],
+    "n": 3
+  },
+  "D+fp:H": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "fingerprint"
+    ],
+    "n": 3
+  },
+  "D+fp:I": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "anchor"
+    ],
+    "n": 3
+  },
+  "D+fp:J": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "D:A": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "hash"
+    ],
+    "n": 3
+  },
+  "D:B": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "signature"
+    ],
+    "n": 3
+  },
+  "D:C": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "linkage"
+    ],
+    "n": 3
+  },
+  "D:D": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "hash"
+    ],
+    "n": 3
+  },
+  "D:E": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "hash"
+    ],
+    "n": 3
+  },
+  "D:F": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "D:G": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "D:H": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  },
+  "D:I": {
+    "detected_n": 3,
+    "detection_rate": 1.0,
+    "errors": [],
+    "layers": [
+      "anchor"
+    ],
+    "n": 3
+  },
+  "D:J": {
+    "detected_n": 0,
+    "detection_rate": 0.0,
+    "errors": [],
+    "layers": [],
+    "n": 3
+  }
+}

@@ -1,0 +1,15 @@
+tier,op,p50_ms,p95_ms,n_bytes,extra
+baseline,registration,0.345,0.588,,
+baseline,transfer,0.439,0.592,,
+baseline,certificate_render,6.368,7.838,,
+baseline,fingerprint_enrol,0.825,0.955,,
+baseline,fingerprint_verify,0.092,0.114,,
+baseline,checkpoint_build,0.301,0.378,,
+baseline,anchor_publish,0.45,0.54,,
+baseline,independent_verify,0.008,0.013,728,
+1244,certificate_render,6.399,6.479,,max_hops=21
+1244,checkpoint_build,3.193,3.313,,root=6e8755607ce0… depth=11 leaves=1244
+1244,inclusion_proof_fetch,2.478,2.493,1186,proof_ok=True path_len=11
+1244,anchor_publish,0.706,0.706,,backend=local verified=True
+1244,template_lookup_indexed,0.003,0.005,,
+1244,template_lookup_linear_ablation,0.006,0.01,,templates_dir_entries=1

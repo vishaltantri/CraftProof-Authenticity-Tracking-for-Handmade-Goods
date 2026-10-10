@@ -31,9 +31,15 @@ def verify_chain_detailed(piece_id):
     Returns (valid, reason, checks) where checks is a per-record list of the
     three independent tests, so the certificate page can show exactly which
     step of the history failed rather than a single global verdict.
+
+    The genesis record of a fingerprint-committed piece was signed over an
+    extra 'cm' field (see record.ALLOWED_EXTRA_FIELDS / fingerprint.py), so
+    the re-hash of that record includes the commitment too.
     """
     conn = get_db()
     records = conn.execute("SELECT * FROM custody_records WHERE piece_id = ? ORDER BY seq_index ASC", (piece_id,)).fetchall()
+    prow = conn.execute("SELECT fingerprint_commitment FROM pieces WHERE id = ?", (piece_id,)).fetchone()
+    commitment = prow["fingerprint_commitment"] if prow else None
     conn.close()
 
     checks = []
@@ -45,6 +51,9 @@ def verify_chain_detailed(piece_id):
 
         # 1. Content integrity — the stored hash must match a re-hash of the row
         content_ok = rec.compute_hash() == r["record_hash"]
+        if not content_ok and r["seq_index"] == 0 and commitment:
+            rec.add_field("cm", commitment)
+            content_ok = rec.compute_hash() == r["record_hash"]
 
         # 2. Chain linkage — each record must point at its predecessor
         expected_prev = records[i-1]["record_hash"] if i > 0 else GENESIS_HASH

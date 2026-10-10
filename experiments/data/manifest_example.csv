@@ -1,0 +1,13 @@
+object_id,image_path,capture_source,license,consent,capture_device,capture_context,set,notes
+obj001,photos/obj001/01_front.jpg,self,owned,y,pixel6,window daylight,same-object-pair-eligible,
+obj001,photos/obj001/02_back.jpg,self,owned,y,pixel6,window daylight,same-object-pair-eligible,
+obj001,photos/obj001/03_obl_l.jpg,self,owned,y,pixel6,window daylight,same-object-pair-eligible,
+obj001,photos/obj001/04_obl_r.jpg,self,owned,y,pixel6,window daylight,same-object-pair-eligible,
+obj001,photos/obj001/05_macro.jpg,self,owned,y,pixel6,window daylight,same-object-pair-eligible,
+obj001,photos/obj001/session2/01_front.jpg,self,owned,y,eos_m50,overcast outdoors,same-object-pair-eligible,re-shot 2 weeks later
+obj002,photos/obj002/01_front.jpg,marketplace_listing,permission-on-file,na,unknown,unknown,same-object-pair-eligible,listing 1122334455 multi-photo of one same item; research use only
+obj002,photos/obj002/06_extra.jpg,marketplace_listing,permission-on-file,na,unknown,unknown,same-object-pair-eligible,listing 1122334455
+obj003,photos/obj003/01_front.jpg,cc_public_domain,cc0,na,unknown,unknown,impostor-only,museum open access example
+obj004,photos/obj004/01_front.jpg,self,owned,y,pixel6,window daylight,impostor-only,
+obj004,photos/obj004/05_macro.jpg,self,owned,y,pixel6,window daylight,impostor-only,
+obj005,photos/obj005/01_front.jpg,colleague,owned,n,y,indoor lamp,impostor-only,owner declined sign-off -> will be excluded by build_pairs

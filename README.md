@@ -44,6 +44,29 @@ craftproof/
 
 ## 🚀 Quick Start
 
+### ReMarket sale import
+
+CraftProof reads completed sales from ReMarket using the certificate code. No seller or buyer CraftProof account ID is needed. Configure these **on the CraftProof backend**, using the same sale API key configured on the ReMarket server:
+
+```text
+REMARKET_API_URL=https://<your-remarket-host>
+REMARKET_SALE_API_KEY=<shared ReMarket sale API key>
+CRAFTPROOF_REMARKET_SYNC_KEY=<a separate secret for manual sync requests>
+```
+
+For local development, put these values in the Git-ignored `backend/.env.local` file, then run `./venv/Scripts/python.exe -m uvicorn main:app --env-file .env.local --host 127.0.0.1 --port 8002` from the `backend` folder on Windows. The local ReMarket URL is `http://127.0.0.1:8000`; a deployed CraftProof service needs a publicly reachable HTTPS ReMarket URL and its own private key settings.
+
+CraftProof polls ReMarket once per minute while the backend is running. Set `REMARKET_SYNC_INTERVAL_SECONDS=0` to disable polling, or set a positive number of seconds to change the interval. To run a sync immediately:
+
+```bash
+curl -X POST https://<your-craftproof-backend>/integrations/remarket/sync \
+  -H "X-Integration-Key: <CRAFTPROOF_REMARKET_SYNC_KEY>"
+```
+
+The response reports imported, already imported, and skipped sales. A missing certificate or an item title that does not match the certificate title is skipped and retried on the next sync. Titles are compared without regard to case or repeated spaces. Each imported order is recorded once, and the buyer name appears in the public certificate history. Buyer names are self reported by ReMarket; a matching certificate code and title cannot prove that the ReMarket seller was the rightful owner. ReMarket's current checkout is a demonstration without payment or handoff verification. The polling process runs only while CraftProof is awake, so an always-on deployment or an external scheduler calling the sync endpoint is needed for timely updates.
+
+Run the import checks from `backend` with `python -m unittest -v test_remarket`.
+
 ### Prerequisites
 - Python 3.10+
 - Node.js 18+

@@ -71,6 +71,15 @@ def init_db():
     )
     ''')
 
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS remarket_imports (
+        order_id TEXT PRIMARY KEY,
+        piece_id INTEGER NOT NULL REFERENCES pieces(id),
+        record_id INTEGER NOT NULL REFERENCES custody_records(id),
+        imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
     conn.commit()
     conn.close()
 

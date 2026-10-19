@@ -1,5 +1,8 @@
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException
+import asyncio
+import logging
+import os
+from contextlib import asynccontextmanager, suppress
+from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -9,6 +12,7 @@ from database import get_db
 from crypto_utils import generate_keypair, pubkey_to_hex, sign
 from core import verify_chain_detailed, create_checkpoint, list_checkpoints, get_inclusion_proof
 from record import CustodyRecord, GENESIS_HASH
+from remarket import require_sync_key, sync_sales
 from seed import seed as seed_demo_data
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -28,10 +32,30 @@ def seed_demo_if_empty():
         seed_demo_data()
 
 
+async def poll_remarket_sales(interval):
+    while True:
+        try:
+            await asyncio.to_thread(sync_sales)
+        except Exception:
+            logging.exception("ReMarket sale sync failed")
+        await asyncio.sleep(interval)
+
+
 @asynccontextmanager
 async def lifespan(app):
     seed_demo_if_empty()
-    yield
+    task = None
+    if os.environ.get("REMARKET_API_URL") and os.environ.get("REMARKET_SALE_API_KEY"):
+        interval = int(os.environ.get("REMARKET_SYNC_INTERVAL_SECONDS", "60"))
+        if interval > 0:
+            task = asyncio.create_task(poll_remarket_sales(interval))
+    try:
+        yield
+    finally:
+        if task:
+            task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
 
 
 app = FastAPI(
@@ -227,6 +251,12 @@ def get_pieces_i_made(user_id: int = Depends(get_current_user_id)):
 
 # ---------- Transfer ----------
 
+@app.post("/integrations/remarket/sync", tags=["Integrations"])
+def sync_remarket_sales(x_integration_key: Optional[str] = Header(default=None)):
+    """Pull completed ReMarket sales and append signed custody events by certificate code."""
+    require_sync_key(x_integration_key)
+    return sync_sales()
+
 @app.post("/pieces/{piece_id}/transfer")
 def transfer_piece(piece_id: int, req: TransferRequest, user_id: int = Depends(get_current_user_id)):
     conn = get_db()
@@ -420,6 +450,8 @@ def api_verify(code: str):
             h = conn.execute("SELECT name, shop_name FROM users WHERE id = ?", (piece["current_owner_id"],)).fetchone()
             if h:
                 holder = h["shop_name"] or h["name"]
+        elif records:
+            holder = records[-1]["to_name"]
 
         history = []
         anchored = 0

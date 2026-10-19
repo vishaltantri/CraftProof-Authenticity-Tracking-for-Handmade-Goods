@@ -4,3 +4,5 @@ cryptography
 pyjwt
 bcrypt
 pydantic
+httpx
+python-dotenv

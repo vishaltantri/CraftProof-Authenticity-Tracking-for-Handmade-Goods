@@ -241,17 +241,42 @@ def fetch_sale(client: httpx.Client, order_id: str) -> Optional[dict]:
 # ------------------------------------------------------------------ service signer
 
 
+def _writable_key_path() -> str:
+    """The configured key path, or a usable fallback beside this module.
+
+    CRAFTPROOF_REMARKET_KEY can easily be pointed at a directory the service
+    cannot create — /var/data on a Render instance with no disk mounted, for
+    instance. Letting that raise would take the whole integration down over a
+    deployment setting, so fall back loudly instead.
+
+    Falling back is safe precisely because service_account() looks the signer
+    up by public key: a key in a new location becomes a new signer identity
+    rather than silently invalidating records signed by the old one.
+    """
+    directory = os.path.dirname(_KEY_FILE)
+    try:
+        if directory:
+            os.makedirs(directory, exist_ok=True)
+        return _KEY_FILE
+    except OSError as exc:
+        fallback_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "integration")
+        os.makedirs(fallback_dir, exist_ok=True)
+        fallback = os.path.join(fallback_dir, "remarket_signer.key")
+        print(f"[remarket] cannot use CRAFTPROOF_REMARKET_KEY={_KEY_FILE!r} ({exc}); "
+              f"falling back to {fallback!r}. Set it to a writable path — this "
+              f"location is lost on redeploy, which registers a new signer each time.")
+        return fallback
+
+
 def _load_or_create_signing_key() -> Ed25519PrivateKey:
     """Load the integration signing key, creating it on first use.
 
     Mirrors anchoring._ensure_journal_key: the private half lives in its own
     file so a database compromise alone cannot forge imported custody records.
     """
-    directory = os.path.dirname(_KEY_FILE)
-    if directory:
-        os.makedirs(directory, exist_ok=True)
-    if os.path.exists(_KEY_FILE):
-        with open(_KEY_FILE, "rb") as fh:
+    path = _writable_key_path()
+    if os.path.exists(path):
+        with open(path, "rb") as fh:
             return Ed25519PrivateKey.from_private_bytes(fh.read())
     key = Ed25519PrivateKey.generate()
     raw = key.private_bytes(
@@ -260,7 +285,7 @@ def _load_or_create_signing_key() -> Ed25519PrivateKey:
         encryption_algorithm=serialization.NoEncryption(),
     )
     # Write 0600 before any bytes land on disk.
-    fd = os.open(_KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "wb") as fh:
         fh.write(raw)
     return key

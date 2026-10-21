@@ -331,6 +331,26 @@ class ReMarketImportTests(unittest.TestCase):
             "SELECT COUNT(*) FROM users WHERE role = 'integration'")
         self.assertEqual(signers, 2, "a new key must register as a new signer")
 
+    def test_unwritable_key_path_falls_back_instead_of_failing(self):
+        """A bad CRAFTPROOF_REMARKET_KEY must not take the integration down.
+
+        Pointing it at /var/data on an instance with no disk mounted is an
+        easy deployment mistake; the import should still work and say so.
+        """
+        remarket._KEY_FILE = "/proc/cannot/create/this/remarket_signer.key"
+        try:
+            result = self._sync_with([_sale()])
+            self.assertEqual(result["imported"], 1)
+            valid, reason, _ = verify_chain_detailed(self.piece_id)
+            self.assertTrue(valid, reason)
+        finally:
+            remarket._KEY_FILE = os.path.join(self._tmp.name, "remarket_signer.key")
+        # Clean up the key the fallback created next to the module.
+        fallback = os.path.join(os.path.dirname(os.path.abspath(remarket.__file__)),
+                                "integration", "remarket_signer.key")
+        if os.path.exists(fallback):
+            os.remove(fallback)
+
     def test_status_never_leaks_the_api_key(self):
         secret = "super-secret-partner-key-value"
         with patch.dict(os.environ, {"REMARKET_API_URL": "https://remarket.test",

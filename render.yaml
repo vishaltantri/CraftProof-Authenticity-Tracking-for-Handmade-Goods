@@ -4,6 +4,10 @@ services:
     runtime: python
     region: oregon
     rootDir: backend
+    # Deploying the ReMarket integration branch.
+    # CHANGE THIS TO main (or delete both `branch:` lines) WHEN hem IS MERGED,
+    # otherwise main keeps redeploying from a branch that has stopped moving.
+    branch: hem
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
@@ -11,38 +15,61 @@ services:
       # Example generate: python3 -c "import secrets; print(secrets.token_urlsafe(48))"
       - key: JWT_SECRET_KEY
         sync: false
-      # Anchoring: keep the journal + key outside the DB volume. 'local'
-      # backend (default) signs roots with an Ed25519 key stored at
-      # CRAFTPROOF_ANCHOR_KEY; switch to 'freetsa' for RFC 3161 timestamps.
+
+      # ---------------------------------------------------------------------
+      # Storage paths
+      #
+      # These used to point at /var/data, which only exists when a disk is
+      # mounted — and no disk is declared below. anchoring.py and
+      # fingerprint.py both makedirs() their configured directory at runtime,
+      # so on an instance without a disk those writes fail: publishing a
+      # ledger checkpoint would 500, and so would a fingerprint enrolment.
+      #
+      # They are therefore left unset, which puts each one under the backend
+      # directory, where the service can write.
+      #
+      # The honest caveat: that filesystem is ephemeral. Every redeploy starts
+      # clean, so the database, the anchor journal and the integration signing
+      # key are all lost together and the app reseeds itself. That is fine for
+      # a demo and not fine for anything real. To make it durable, move to a
+      # paid instance type, uncomment the disk below, and set the four paths
+      # to live under its mountPath.
+      #
+      # disk:
+      #   name: craftproof-data
+      #   mountPath: /var/data
+      #   sizeGB: 1
+      #
+      # Then set: CRAFTPROOF_DB=/var/data/craftproof.db,
+      # CRAFTPROOF_ANCHOR_JOURNAL=/var/data/anchor/journal.jsonl,
+      # CRAFTPROOF_ANCHOR_KEY=/var/data/anchor/anchor_key.pem,
+      # CRAFTPROOF_TEMPLATES_DIR=/var/data/templates,
+      # CRAFTPROOF_REMARKET_KEY=/var/data/integration/remarket_signer.key
+      # ---------------------------------------------------------------------
+
+      # Anchoring: 'local' signs checkpoint roots with an Ed25519 journal key;
+      # switch to 'freetsa' for real RFC 3161 timestamps from an outside party.
       - key: CRAFTPROOF_ANCHOR_BACKEND
         value: local
-      - key: CRAFTPROOF_ANCHOR_JOURNAL
-        value: /var/data/anchor/journal.jsonl
-      - key: CRAFTPROOF_ANCHOR_KEY
-        value: /var/data/anchor/anchor_key.pem
-      - key: CRAFTPROOF_TEMPLATES_DIR
-        value: /var/data/templates
-      # ReMarket marketplace integration (backend/remarket.py).
-      # REMARKET_SALE_API_KEY is the partner's shared secret — set its value in
+
+      # --- ReMarket marketplace integration (backend/remarket.py) ----------
+      # REMARKET_SALE_API_KEY is the partner's shared secret. Set its value in
       # the Render dashboard, never in this file, which is public in Git.
       - key: REMARKET_API_URL
         value: https://remarket-24rz.onrender.com
       - key: REMARKET_SALE_API_KEY
         sync: false
-      # Separate secret for POST /integrations/remarket/sync, so whoever may
+      # A separate secret for POST /integrations/remarket/sync, so whoever may
       # trigger a sync is not handed the partner's credential.
       # Generate: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
       - key: CRAFTPROOF_REMARKET_SYNC_KEY
         sync: false
-      # Seconds between polls; 0 disables the background poller. The free tier
-      # sleeps, so the poller only runs while the service is awake — an
-      # external scheduler hitting the sync endpoint is the reliable path.
+      # Seconds between polls; 0 disables the background poller. A free
+      # instance sleeps, so the poller only runs while the service is awake.
+      # An external scheduler calling the sync endpoint is the reliable path.
       - key: REMARKET_SYNC_INTERVAL_SECONDS
         value: "300"
-      # The integration's Ed25519 signing key, kept off the database volume so
-      # a DB copy alone cannot mint imported custody records.
-      - key: CRAFTPROOF_REMARKET_KEY
-        value: /var/data/integration/remarket_signer.key
+
       # NEVER set CRAFTPROOF_ALLOW_INSECURE_DEMO in a deployed environment:
       # it installs a known demo JWT secret and re-enables /admin/tamper.
 
@@ -50,6 +77,8 @@ services:
     name: craftproof-frontend
     runtime: static
     rootDir: frontend
+    # Must match the backend's branch above — see the note there before merging.
+    branch: hem
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     routes:

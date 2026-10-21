@@ -2,8 +2,9 @@
 
 A step-by-step walkthrough of the entire product journey with real screenshots:
 a maker registers a piece, hands it to a gallery, the gallery sells it to a
-customer, the history is sealed into the public ledger — and then someone
-tampering with the records gets caught.
+customer, the history is sealed into the public ledger — then someone tampering
+with the records gets caught, and finally the piece is resold on a partner
+marketplace and that sale lands on the certificate too.
 
 All demo accounts use the password **`craftproof123`**.
 
@@ -12,6 +13,7 @@ All demo accounts use the password **`craftproof123`**.
 | Maker | Meera Krishnan | `meera@example.com` |
 | Seller (gallery) | Priya Nair — *Kalakriti Gallery* | `priya@example.com` |
 | Buyer | Jonathan Price | *(no account needed — that's the point)* |
+| Marketplace | ReMarket | *(partner site; buys and sells secondhand)* |
 
 ---
 
@@ -220,6 +222,96 @@ signature they could not forge.
 
 ---
 
+## Part 7 — The resale: a marketplace sale lands on the certificate
+
+Everything so far happened between people with CraftProof accounts. Most
+secondhand sales do not. [ReMarket](https://github.com/arpan-basak/ReMarket) is
+a partner marketplace: a seller attaches a CraftProof code to a listing, and
+when it sells, ReMarket knows two things CraftProof does not — **who bought it**
+and **which order recorded the sale**.
+
+CraftProof reads that feed and appends the buyer. Without it, a piece's history
+would stop at the last person who happened to have an account.
+
+### Step 18 · The gallery lists the piece on ReMarket
+
+Kalakriti Gallery lists the *Speckled tea bowl set* on ReMarket and attaches its
+certificate code, `KOODE0LL`. A buyer, Jonathan Price, purchases it. Nothing has
+reached CraftProof yet — ReMarket never writes to us.
+
+### Step 19 · CraftProof reads the sale
+
+On the **ReMarket** page, *Check for new sales* pulls the feed and imports
+anything that passes its checks.
+
+![CraftProof marketplace page](screenshots/18-craftproof-marketplace.png)
+
+Note the second line. A different seller listed an *iPhone 18 Pro* quoting the
+same certificate code, and that sale was **left alone**:
+
+> RM-000002 — the listing name does not match the certificate, so nothing was changed
+
+That is the safety check doing its job. A sale only touches a certificate when
+the listing title matches the piece title, so a code copied from someone else's
+public certificate page cannot rewrite it. Skipped sales are retried on every
+later sync rather than being dropped.
+
+### Step 20 · The certificate records the new owner
+
+![Certificate with the marketplace step](screenshots/19-certificate-marketplace-step.png)
+
+A third step has appeared: **Sold on ReMarket to Jonathan Price**, sealed into a
+checkpoint like every other record.
+
+Read the line under it carefully:
+
+> Reported by ReMarket · order RM-000002 · Recorded from the marketplace, not
+> confirmed by the previous owner.
+
+Every other step says *"✓ Confirmed by …"*. This one does not, and that is
+deliberate. The gallery did not sign this handover; a marketplace reported it.
+The record is signed by a CraftProof integration account so the chain still
+verifies, but nobody reading the certificate is told a marketplace's word came
+from the person who handed the piece over.
+
+### Step 21 · Both sites now tell the same story
+
+Back on ReMarket, the listing's own CraftProof panel shows the updated history —
+including the sale that ReMarket itself reported.
+
+![ReMarket listing showing CraftProof history](screenshots/17-remarket-listing.png)
+
+This is the full round trip in one screenshot. ReMarket calls CraftProof's
+public `/api/verify/{code}` to render the history; CraftProof polled ReMarket's
+sale feed to learn the last line of it.
+
+ReMarket's own panel is candid about what it has not checked: *"the link between
+this listing and the physical item, and the seller's ownership, have not been
+independently checked by ReMarket."*
+
+### Step 22 · Checking the seller before you buy
+
+Which leads to the gap neither a certificate nor a marketplace closes on its own.
+A certificate proves the piece is genuine. It does **not** prove the person
+offering it to you is entitled to sell it — anyone can quote a code they found.
+
+The certificate page has a check for exactly that.
+
+![Seller check](screenshots/20-seller-check.png)
+
+Enter the seller's name and CraftProof compares it against the holder on record.
+Here it disagrees, and says so plainly, along with what the check is worth:
+
+> Name comparison only. It does not prove identity, and it does not prove the
+> holder agreed to the sale.
+
+The answer has three states, not two. A match, a mismatch, and *"we cannot
+answer"* — shown when the chain does not verify or no holder is recorded.
+Folding that third state into "mismatch" would accuse a seller because of a
+database problem, so it stays separate.
+
+---
+
 ## Appendix — Running this yourself
 
 ```bash
@@ -242,10 +334,22 @@ python3 verify_cli.py <CODE>
 python3 tamper_demo.py <piece_id> <seq_index> "altered note"
 ```
 
-The screenshots in this guide were captured automatically with
-`node docs/capture_workflow.js` (puppeteer-core driving system Chrome) — it
-registers the piece, performs every transfer, publishes the checkpoint and
-runs the tamper demo, so the whole guide can be regenerated at any time.
+The screenshots in this guide were captured automatically with puppeteer-core
+driving system Chrome, so the whole guide can be regenerated at any time:
+
+```bash
+# Parts 1-6 (screenshots 01-16): registers the piece, performs every transfer,
+# publishes the checkpoint and runs the tamper demo.
+node docs/capture_workflow.js
+
+# Part 7 (screenshots 17-20): needs ReMarket running on :8000 with a sale that
+# quotes a CraftProof code, and the backend configured to reach it.
+node docs/capture_marketplace.js <remarket_product_id> <certificate_code>
+```
+
+They are kept as two scripts on purpose: re-running the first regenerates all
+sixteen of its screenshots, which churns the repo when only Part 7 needs
+refreshing.
 
 ## Appendix — Known rough edges noticed while documenting
 

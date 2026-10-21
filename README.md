@@ -31,7 +31,8 @@ craftproof/
 │   ├── fingerprint.py    # Physical "paper fingerprint" descriptors + template store (CraftProof 2.0)
 │   ├── clone_detection.py# Same-code history cross-check: catches re-scans of a cloned tag (2.0)
 │   ├── anchoring.py      # External anchoring of Merkle roots: RFC 3161 TSA or Ed25519 journal (2.0)
-│   └── test_*.py         # Cryptographic, fingerprint, clone-detection, anchoring test suites
+│   ├── remarket.py       # ReMarket marketplace integration: imports completed sales as custody events
+│   └── test_*.py         # Crypto, fingerprint, clone-detection, anchoring, ReMarket, public-API suites
 ├── experiments/          # Research harnesses (see experiments/data/README.md)
 │   ├── harness.py        # Attack-matrix harness: plan's attacks A–J × architectures A/B/C/D/D+fp
 │   ├── benchmarks.py     # E5 latency + E6 scaling benchmarks → CSV
@@ -46,6 +47,8 @@ craftproof/
         │   ├── Dashboard.jsx # Maker/Seller inventory + QR codes + printable tags
         │   ├── Certificate.jsx # Public certificate verification page
         │   ├── Ledger.jsx    # Published checkpoints ("public ledger")
+        │   ├── Marketplace.jsx # ReMarket connection, imported sales, live partner feed
+        │   ├── Developers.jsx # Public API guide with copyable examples
         │   └── HowItWorks.jsx # Plain-language explainer
         └── index.css         # Artisan-themed design system
 ```
@@ -305,8 +308,22 @@ Record 0: 3 -> Self  (2026-06-12T08:08:19+00:00)
 | `GET` | `/c/{code}/proof` | No | Raw signed fields, hashes, public keys and Merkle proofs, for independent verification (the fingerprint commitment is included in the signed fields when present) |
 | `GET` | `/ledger/checkpoints` | No | Published Merkle roots with timestamps |
 | `POST` | `/ledger/checkpoint` | No | Seal every record so far under a new Merkle root |
-| `GET` | `/users` | No | List registered users |
+| `GET` | `/users` | No | List registered users (integration service accounts excluded) |
 | `POST` | `/admin/tamper/{piece_id}/{seq}` | — | Demo only: silently alter a record. Answers 403 unless `CRAFTPROOF_ALLOW_INSECURE_DEMO=true` |
+
+**Partner-facing additions** — full reference in [`docs/API.md`](docs/API.md):
+
+| Method | Endpoint | Auth | Purpose |
+|---|---|---|---|
+| `GET` | `/api/verify/{code}` | No | One-call verdict plus ownership history, with a `marketplace` block when the holder came from a marketplace sale |
+| `GET` | `/api/verify?codes=A,B,C` | No | Verify up to 50 certificates in one call, for a listing page |
+| `GET` | `/api/verify/{code}/holder?name=…` | No | Is the person selling it the holder on record? Three-valued answer |
+| `GET` | `/badge/{code}.svg` | No | Live verification badge any site can `<img>`; `?style=compact` for the small variant |
+| `GET` | `/integrations/remarket/status` | No | ReMarket connection health and import counts |
+| `GET` | `/integrations/remarket/imports` | No | Sales already written onto certificates |
+| `POST` | `/integrations/remarket/sync` | `X-Integration-Key` | Pull completed ReMarket sales now |
+| `POST` | `/integrations/remarket/sync-as-user` | Yes | Same work, authorised by a normal session (the dashboard button) |
+| `GET` | `/integrations/remarket/feed` | Yes | Read the partner's live feed without importing
 
 ## ⚙️ Configuration (environment variables)
 
@@ -322,6 +339,36 @@ Record 0: 3 -> Self  (2026-06-12T08:08:19+00:00)
 | `CRAFTPROOF_TSA_URL` | `https://freetsa.org/tsr` | TSA endpoint (freetsa backend) |
 | `CRAFTPROOF_ANCHOR_KEY` / `CRAFTPROOF_ANCHOR_JOURNAL` | `backend/anchoring/…` | Anchor key + journal paths — keep outside the DB volume so a DB exfiltration cannot rewrite history |
 | `KEYSTORE_KDF`/envelope | auto | Key envelopes use Argon2id when `argon2-cffi` is installed, else PBKDF2-SHA256 (1.2M iterations) |
+| `REMARKET_API_URL` | unset | ReMarket base URL. The integration stays off until this and the key are both set |
+| `REMARKET_SALE_API_KEY` | unset | The partner's shared bearer key (**secret**). Used server-side only; never stored in the DB or sent to a browser |
+| `CRAFTPROOF_REMARKET_SYNC_KEY` | unset | Separate secret gating `POST /integrations/remarket/sync` |
+| `REMARKET_SYNC_INTERVAL_SECONDS` | `300` | Background poll interval; `0` disables the poller |
+| `CRAFTPROOF_REMARKET_KEY` | `backend/integration/remarket_signer.key` | The integration's Ed25519 signing key. Falls back to a writable path with a warning if this one cannot be created |
+
+> **Paths and Render.** Anything pointed at `/var/data` needs a mounted disk. Without one, a
+> non-root service cannot create that directory and the write fails at runtime — publishing a
+> checkpoint or enrolling a fingerprint would return a 500. Leave these at their defaults unless
+> you have added a disk. See [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+
+## ☁️ Deployment
+
+Both services deploy on Render from [`render.yaml`](render.yaml). Full walkthrough, including the
+branch-vs-blueprint trap and a troubleshooting table:
+**[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md)**.
+
+| Service | URL |
+|---|---|
+| `craftproof-backend` | https://craftproof-backend.onrender.com |
+| `craftproof-frontend` | https://craftproof-frontend.onrender.com |
+
+Two secrets must be set in the Render dashboard rather than in Git — `REMARKET_SALE_API_KEY` and
+`CRAFTPROOF_REMARKET_SYNC_KEY` — plus `JWT_SECRET_KEY` if it is not already set. They are marked
+`sync: false` in the blueprint so Render prompts for them.
+
+Honest caveat: no disk is declared, so the filesystem is ephemeral. The database, anchor journal
+and integration signing key are lost on every redeploy and the app reseeds itself with demo data.
+Fine for a demo, not for anything real. `render.yaml` carries the commented `disk:` block and the
+paths to restore when you move to a paid instance.
 
 ## 🔬 Research experiments (CraftProof 2.0)
 
@@ -346,7 +393,9 @@ python3 ../experiments/build_pairs.py \
 The attack harness produces the paper's defense matrix as machine-readable JSON —
 see its module docstring for the architecture mapping. Test suites:
 `test_crypto.py` (12), `test_fingerprint.py` (7), `test_clone_detection.py` (6),
-`test_anchoring.py` (8) — run each with plain `python3 <file>`.
+`test_anchoring.py` (8), `test_keystore.py` (5) — run each with plain `python3 <file>`.
+`test_remarket.py` (16) and `test_public_api.py` (13) use unittest discovery:
+`python3 -m unittest -v test_remarket test_public_api`. 67 tests in total.
 
 ## 📄 License
 

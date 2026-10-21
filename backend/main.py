@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager, suppress
-from fastapi import FastAPI, Depends, HTTPException, Header, Query
+from fastapi import FastAPI, Depends, HTTPException, Header, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -498,6 +498,14 @@ def get_pieces_i_made(user_id: int = Depends(get_current_user_id)):
                            or (last["to_name"] if last else None) or "Unknown")
             d["transfers"] = last["seq_index"] if last else 0
             d["still_held"] = p["current_owner_id"] == user_id
+            # A maker usually never learns their work was resold. If a
+            # marketplace reported one, say so here.
+            sale = remarket.import_for_piece(conn, p["id"])
+            d["marketplace"] = (
+                {"source": "ReMarket", "order_id": sale["order_id"],
+                 "buyer_name": sale["buyer_name"], "sold_at": sale["completed_at"]}
+                if sale else None
+            )
             out.append(d)
         return out
     finally:
@@ -966,6 +974,193 @@ def api_verify(code: str):
         }
     finally:
         conn.close()
+
+# ---------- Is the person selling it the person who holds it? ----------
+
+def _normalise_name(value: str) -> str:
+    """Collapse case and repeated whitespace, the same rule the importer uses."""
+    return " ".join((value or "").split()).casefold()
+
+
+@app.get("/api/verify/{code}/holder", tags=["Public API"],
+         summary="Check whether a named seller is the recorded holder")
+def api_check_holder(code: str, name: str = Query(..., min_length=1, max_length=128)):
+    """Does `name` match who CraftProof currently records as holding this piece?
+
+    A certificate proves a piece is genuine. It does not prove the person
+    offering it to you is entitled to sell it — a resale listing can quote
+    anyone's certificate code. This is the missing check: compare the seller
+    against the recorded holder before money changes hands.
+
+    `matches` is deliberately three-valued. `true` and `false` are findings;
+    `null` means CraftProof cannot answer — the chain failed verification, or
+    the piece has no recorded holder at all. A caller that treats `null` as
+    `false` turns "unknown" into "fraud", which is its own harm.
+
+    Name comparison is a weak signal and is documented as such: people share
+    names and type them differently. Treat a mismatch as a reason to ask
+    questions, never as proof of theft.
+    """
+    conn = get_db()
+    try:
+        piece = _load_certificate(conn, code)
+        valid, reason, _ = verify_chain_detailed(piece["id"])
+
+        holder = None
+        if piece["current_owner_id"]:
+            row = conn.execute(
+                "SELECT name, shop_name FROM users WHERE id = ?", (piece["current_owner_id"],)
+            ).fetchone()
+            if row:
+                holder = row["shop_name"] or row["name"]
+        else:
+            last = conn.execute(
+                "SELECT to_name FROM custody_records WHERE piece_id = ? "
+                "ORDER BY seq_index DESC LIMIT 1", (piece["id"],)
+            ).fetchone()
+            if last:
+                holder = last["to_name"]
+
+        if not valid:
+            matches, verdict = None, (
+                "This certificate does not currently verify, so its ownership "
+                "record cannot be relied on. Do not buy on the strength of it."
+            )
+        elif not holder:
+            matches, verdict = None, (
+                "No current holder is recorded for this piece, so there is "
+                "nothing to check the seller against."
+            )
+        elif _normalise_name(holder) == _normalise_name(name):
+            matches, verdict = True, (
+                f"The name given matches the holder CraftProof has on record. "
+                f"That is a good sign, but a name is not an identity check."
+            )
+        else:
+            matches, verdict = False, (
+                f"CraftProof records this piece as held by {holder}, which does "
+                f"not match the name given. Ask the seller to explain before buying."
+            )
+
+        return {
+            "certificate_code": piece["certificate_code"],
+            "authentic": valid,
+            "reason": None if valid else reason,
+            "current_holder": holder,
+            "checked_name": name.strip(),
+            "matches": matches,
+            "verdict": verdict,
+            # Said plainly so an integrator cannot mistake this for an
+            # identity or entitlement check. It is neither.
+            "caveat": ("Name comparison only. It does not prove identity, and it "
+                       "does not prove the holder agreed to the sale."),
+        }
+    finally:
+        conn.close()
+
+
+# ---------- Embeddable verification badge ----------
+
+@app.get("/badge/{code}.svg", tags=["Public API"],
+         summary="Live verification badge as an SVG image", response_class=Response)
+def verification_badge(code: str, style: str = Query("full", pattern="^(full|compact)$")):
+    """An `<img>`-able badge that reflects the certificate's live state.
+
+    Partner sites can show CraftProof's verdict without writing any code:
+
+        <a href="https://craftproof.example/c/AB12CD34">
+          <img src="https://api.craftproof.example/badge/AB12CD34.svg" alt="...">
+        </a>
+
+    The badge reports what is true right now — a certificate that stops
+    verifying stops showing a green badge, everywhere it is embedded. That is
+    the point of serving it as a live image rather than a static asset, so
+    caching is deliberately short.
+    """
+    from xml.sax.saxutils import escape
+
+    conn = get_db()
+    try:
+        try:
+            piece = _load_certificate(conn, code)
+        except HTTPException:
+            piece = None
+
+        if piece is None:
+            state, label, detail = "unknown", "Not found", "No such certificate"
+        else:
+            valid, _, _ = verify_chain_detailed(piece["id"])
+            cloned = False
+            try:
+                from clone_detection import _load_events, _template_from_digest, detect_clone
+                events = _load_events(conn, piece["id"])
+                if events:
+                    probe = _template_from_digest(conn, events[-1]["digest"])
+                    if probe is not None:
+                        status = detect_clone(conn, piece, probe)
+                        cloned = bool(status and status.get("flagged"))
+            except Exception:
+                cloned = False
+
+            if not valid:
+                state, label, detail = "bad", "Not verified", "Record altered"
+            elif cloned:
+                # Never headline a cloned tag as verified: the history is
+                # intact but the object it is attached to is in doubt.
+                state, label, detail = "warn", "Object unconfirmed", "Possible copied tag"
+            else:
+                state, label, detail = "good", "Verified", piece["title"]
+    finally:
+        conn.close()
+
+    palette = {
+        "good": ("#2e7d32", "#e8f5e9", "#c8e6c9"),
+        "warn": ("#a35b00", "#fff8e1", "#ffe0b2"),
+        "bad": ("#c62828", "#ffebee", "#ffcdd2"),
+        "unknown": ("#5f5a50", "#f5f4f0", "#e0ddd5"),
+    }
+    ink, bg, border = palette[state]
+    mark = {"good": "✓", "warn": "!", "bad": "✕", "unknown": "?"}[state]
+
+    # Everything interpolated below is escaped: `detail` carries a
+    # user-supplied piece title, and an SVG is a document, not a string.
+    detail_text = escape((detail or "")[:34])
+    label_text = escape(label)
+
+    if style == "compact":
+        width, svg_body = 132, f'''
+  <text x="30" y="21" font-family="Inter,Helvetica Neue,sans-serif" font-size="12"
+        font-weight="600" fill="{ink}">{label_text}</text>'''
+        height = 32
+    else:
+        width, height = 232, 48
+        svg_body = f'''
+  <text x="38" y="20" font-family="Inter,Helvetica Neue,sans-serif" font-size="12.5"
+        font-weight="700" fill="{ink}">{label_text} by CraftProof</text>
+  <text x="38" y="35" font-family="Inter,Helvetica Neue,sans-serif" font-size="10.5"
+        fill="{ink}" opacity="0.75">{detail_text}</text>'''
+
+    cy = height / 2
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}"
+     viewBox="0 0 {width} {height}" role="img"
+     aria-label="{label_text} by CraftProof">
+  <rect x="0.5" y="0.5" width="{width - 1}" height="{height - 1}" rx="6"
+        fill="{bg}" stroke="{border}"/>
+  <circle cx="20" cy="{cy}" r="9" fill="{ink}"/>
+  <text x="20" y="{cy + 4}" text-anchor="middle" font-family="Inter,Helvetica Neue,sans-serif"
+        font-size="11" font-weight="700" fill="{bg}">{mark}</text>{svg_body}
+</svg>'''
+
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={
+            # Short cache: the badge must be able to go red promptly.
+            "Cache-Control": "public, max-age=60",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
 
 # ---------- Public ledger (Merkle checkpoints) ----------
 

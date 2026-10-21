@@ -136,14 +136,48 @@ curl -X POST https://<your-craftproof-backend>/integrations/remarket/sync \
 | `POST` | `/integrations/remarket/sync-as-user` | Bearer | The dashboard's "Check for new sales" button |
 | `GET` | `/integrations/remarket/feed` | Bearer | Read the partner's live feed without importing |
 | `GET` | `/api/verify?codes=A,B,C` | No | Verify up to 50 certificates in one call, for a listing page |
+| `GET` | `/api/verify/{code}/holder?name=…` | No | Is the person selling it the holder on record? |
+| `GET` | `/badge/{code}.svg` | No | Live verification badge any site can `<img>` |
 
 The **ReMarket** page in the web app (`/marketplace`) shows the connection, what has been recorded,
 and what the marketplace is currently reporting.
 
+What ReMarket can change on their side to use these is written up for them in
+[`docs/REMARKET_PARTNER_NOTES.md`](docs/REMARKET_PARTNER_NOTES.md) — none of it is required, the
+sale import works against ReMarket as it stands.
+
 ```bash
 cd backend && source venv/bin/activate
 python3 -m unittest -v test_remarket      # 15 tests
+python3 -m unittest -v test_public_api    # 13 tests
 ```
+
+### Is the seller entitled to sell it?
+
+A certificate proves the piece is genuine. It does **not** prove the person offering it to you is
+entitled to sell it — a resale listing can quote any code, including one copied from someone else's
+public certificate page. `/api/verify/{code}/holder` compares a named seller against the recorded
+holder, and the certificate page exposes it as a *"Buying this from someone?"* box.
+
+`matches` is three-valued: `true` and `false` are findings, `null` means CraftProof cannot answer
+(the chain does not verify, or no holder is recorded). Collapsing `null` to `false` would turn
+"unknown" into an accusation, so integrators are asked not to.
+
+Name comparison is a weak signal and says so in its own `caveat` field. It is a reason to ask
+questions, never proof of theft.
+
+### Embeddable badge
+
+```html
+<a href="https://<craftproof>/c/KOODE0LL">
+  <img src="https://<craftproof-backend>/badge/KOODE0LL.svg" alt="Verified by CraftProof">
+</a>
+```
+
+A live SVG, no JavaScript, `?style=compact` for a smaller variant. Because it is generated per
+request and cached for only a minute, a certificate that stops verifying turns the badge red
+everywhere it is embedded. The piece title is XML-escaped: the badge is rendered inside other
+people's pages, so a title containing markup must not become markup there.
 
 ## 🚀 Quick Start
 

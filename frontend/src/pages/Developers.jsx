@@ -108,6 +108,52 @@ if (authentic) {
         </div>
       </Endpoint>
 
+      <h3 style={{ margin: '1.5rem 0 0.75rem' }}>Is the seller the holder?</h3>
+      <Endpoint method="GET" path="/api/verify/{code}/holder?name=...">
+        A certificate proves the piece is genuine. It does not prove the person offering it to you
+        is entitled to sell it — a resale listing can quote any code. This compares a named seller
+        against the holder on record, using the same name-matching rule as the sale importer.
+        <p style={{ marginBottom: '0.5rem' }}>
+          <code>matches</code> is three-valued on purpose: <code>true</code> and <code>false</code>{' '}
+          are findings, <code>null</code> means we cannot answer (the chain does not verify, or no
+          holder is recorded). Do not collapse <code>null</code> to <code>false</code> — that turns
+          "unknown" into an accusation.
+        </p>
+        <div style={{ marginTop: '0.75rem' }}>
+          <CodeBlock>{`curl '${API}/api/verify/KOODE0LL/holder?name=Asha%20Rao'`}</CodeBlock>
+          <CodeBlock>{`{
+  "certificate_code": "KOODE0LL",
+  "authentic": true,
+  "current_holder": "Asha Rao",
+  "checked_name": "Asha Rao",
+  "matches": true,
+  "verdict": "The name given matches the holder CraftProof has on record...",
+  "caveat": "Name comparison only. It does not prove identity..."
+}`}</CodeBlock>
+        </div>
+      </Endpoint>
+
+      <h3 style={{ margin: '1.5rem 0 0.75rem' }}>Embeddable badge</h3>
+      <div className="card" style={{ padding: '1.2rem 1.5rem', marginBottom: '1.5rem' }}>
+        <p style={{ color: 'var(--color-muted)', lineHeight: 1.7, marginTop: 0 }}>
+          A live SVG you can drop into any page with no JavaScript. It reflects the certificate's
+          current state, so a record that stops verifying turns the badge red everywhere it is
+          embedded — which is why it is served as an image rather than a static asset.
+        </p>
+        <div style={{ display: 'flex', gap: '1.2rem', alignItems: 'center', flexWrap: 'wrap', margin: '0 0 1rem' }}>
+          <img src={`${API}/badge/KOODE0LL.svg`} alt="CraftProof verification badge" />
+          <img src={`${API}/badge/KOODE0LL.svg?style=compact`} alt="CraftProof verification badge, compact" />
+        </div>
+        <CodeBlock>{`<a href="${SITE}/c/KOODE0LL" target="_blank" rel="noopener">
+  <img src="${API}/badge/KOODE0LL.svg"
+       alt="Verified by CraftProof" width="232" height="48">
+</a>`}</CodeBlock>
+        <p style={{ color: 'var(--color-faint)', fontSize: '0.86rem', margin: 0 }}>
+          Add <code>?style=compact</code> for the small variant. Cached for a minute so it can go
+          red promptly.
+        </p>
+      </div>
+
       <h3 style={{ margin: '1.5rem 0 0.75rem' }}>Marketplace sales</h3>
       <p style={{ color: 'var(--color-muted)', lineHeight: 1.7, marginTop: 0 }}>
         CraftProof reads completed sales from <Link to="/marketplace">ReMarket</Link> and records

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { QRCodeSVG } from 'qrcode.react'
-import { Download } from 'lucide-react'
+import { Download, Store } from 'lucide-react'
 
 import { API } from '../api'
 
@@ -256,6 +256,13 @@ export default function Dashboard() {
                   <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.85rem', color: 'var(--color-muted)' }}>
                     Now with {p.holder} · {p.transfers} {p.transfers === 1 ? 'handover' : 'handovers'}
                   </div>
+                  {/* A maker normally never finds out their work was resold. */}
+                  {p.marketplace && (
+                    <div style={{ fontFamily: 'var(--font-sans)', fontSize: '0.82rem', color: 'var(--color-faint)', marginTop: '0.15rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                      <Store size={12} />
+                      Resold on {p.marketplace.source} to {p.marketplace.buyer_name}
+                    </div>
+                  )}
                 </div>
                 <Link to={`/c/${p.certificate_code}`} className="btn btn-outline btn-sm">View Certificate</Link>
               </div>

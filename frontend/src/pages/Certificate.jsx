@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { CheckCircle, AlertTriangle, Stamp, Clock, Copy, Check, Store } from 'lucide-react'
+import { CheckCircle, AlertTriangle, Stamp, Clock, Copy, Check, Store, UserCheck } from 'lucide-react'
 
 import { API } from '../api'
 
@@ -10,6 +10,27 @@ export default function Certificate() {
   const [error, setError] = useState(false)
   const [showTech, setShowTech] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [sellerName, setSellerName] = useState('')
+  const [sellerResult, setSellerResult] = useState(null)
+  const [sellerError, setSellerError] = useState('')
+  const [checking, setChecking] = useState(false)
+
+  const checkSeller = async () => {
+    const name = sellerName.trim()
+    if (!name) return
+    setChecking(true)
+    setSellerResult(null)
+    setSellerError('')
+    try {
+      const res = await fetch(`${API}/api/verify/${code}/holder?name=${encodeURIComponent(name)}`)
+      const body = await res.json().catch(() => ({}))
+      if (res.ok) setSellerResult(body)
+      else setSellerError(body.detail || 'Could not run that check.')
+    } catch {
+      setSellerError('Could not reach the CraftProof server.')
+    }
+    setChecking(false)
+  }
 
   useEffect(() => {
     fetch(`${API}/c/${code}`)
@@ -193,6 +214,62 @@ export default function Certificate() {
             )
           })}
         </ul>
+
+        {/* Buying this secondhand? A certificate says the piece is genuine.
+            It does not say the person offering it to you is entitled to sell
+            it — anyone can quote a code they found. This is that check. */}
+        <div className="detail-section" style={{ marginTop: '1.75rem' }}>
+          <strong style={{ display: 'flex', alignItems: 'center', gap: '0.45rem' }}>
+            <UserCheck size={16} /> Buying this from someone?
+          </strong>
+          <p style={{ fontFamily: 'var(--font-sans)', fontSize: '0.88rem', color: 'var(--color-muted)', lineHeight: 1.65, margin: '0.4rem 0 0.8rem' }}>
+            Check the seller's name against who we have on record as holding it.
+          </p>
+          <form
+            onSubmit={(e) => { e.preventDefault(); checkSeller() }}
+            style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}
+          >
+            <input
+              className="input"
+              style={{ flex: '1 1 220px', minWidth: 0 }}
+              placeholder="Seller's name"
+              value={sellerName}
+              onChange={(e) => setSellerName(e.target.value)}
+              aria-label="Seller's name"
+            />
+            <button className="btn btn-sm" type="submit" disabled={checking || !sellerName.trim()}>
+              {checking ? 'Checking…' : 'Check'}
+            </button>
+          </form>
+
+          {sellerResult && (
+            <div style={{ marginTop: '0.9rem', fontFamily: 'var(--font-sans)', fontSize: '0.88rem', lineHeight: 1.6 }}>
+              <div style={{
+                color: sellerResult.matches === true ? 'var(--color-success)'
+                  : sellerResult.matches === false ? 'var(--color-error)'
+                    : 'var(--color-warning)',
+                fontWeight: 600,
+              }}>
+                {sellerResult.matches === true ? '✓ Matches our record'
+                  : sellerResult.matches === false ? '✕ Does not match our record'
+                    : '? We cannot answer this'}
+              </div>
+              <div style={{ color: 'var(--color-muted)', marginTop: '0.3rem' }}>
+                {sellerResult.verdict}
+              </div>
+              {sellerResult.matches !== null && (
+                <div style={{ color: 'var(--color-faint)', fontSize: '0.82rem', marginTop: '0.3rem' }}>
+                  {sellerResult.caveat}
+                </div>
+              )}
+            </div>
+          )}
+          {sellerError && (
+            <div style={{ marginTop: '0.8rem', color: 'var(--color-error)', fontFamily: 'var(--font-sans)', fontSize: '0.88rem' }}>
+              {sellerError}
+            </div>
+          )}
+        </div>
 
         <div style={{ marginTop: '1.5rem', display: 'flex', gap: '0.8rem', flexWrap: 'wrap' }}>
           <button className="btn btn-outline btn-sm" onClick={copyLink}>

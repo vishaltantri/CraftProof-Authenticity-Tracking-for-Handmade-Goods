@@ -63,6 +63,88 @@ craftproof/
 | **Physical Fingerprint** | Photo descriptors of the object bound into the signed genesis record (`cm` commitment) | "✓ Object matches" |
 | **Clone Detection** | Every scan is cross-checked against the certificate's scan history | Red banner: possible forged copy |
 
+## 🛒 ReMarket marketplace integration
+
+[ReMarket](https://github.com/arpan-basak/ReMarket) is a secondhand marketplace. A seller can
+attach a CraftProof certificate code to a listing; when the item sells, ReMarket knows two things
+CraftProof does not — **who bought it** and **which order recorded the sale**.
+
+The two systems meet in both directions:
+
+| Direction | Who calls whom | What it does |
+|---|---|---|
+| **ReMarket → CraftProof** | ReMarket calls `GET /api/verify/{code}` | A product page shows the piece's real ownership history and authenticity verdict |
+| **CraftProof → ReMarket** | CraftProof polls `GET /api/v1/sales` | A completed sale appends the buyer to the certificate's custody chain |
+
+CraftProof is the API *client* for the sale feed: ReMarket never writes to CraftProof. The
+contract lives in the partner repo's `CRAFTPROOF_INTEGRATION.md`.
+
+### What the importer guarantees
+
+* **Idempotence** — `remarket_imports.order_id` is a PRIMARY KEY written in the same transaction
+  as the custody record, so replaying the feed can never append a sale twice.
+* **Title agreement** — a sale only touches a certificate when the listing title matches the
+  piece title (case- and whitespace-insensitive). A mismatch is skipped, logged and retried; a
+  wrong or guessed code cannot rewrite an unrelated certificate.
+* **Honest attribution** — imported records are signed by a dedicated integration service account,
+  never by the previous owner, and are labelled *"Reported by ReMarket — not confirmed by the
+  previous owner"* on the certificate page and in the API's `marketplace` block.
+* **Cursor discipline** — the poll cursor only advances past sales that reached a terminal state,
+  so a skipped sale is retried on every later sync instead of being lost.
+
+### What it does *not* establish
+
+A matching code and title is a safety check, **not proof of seller authority**. ReMarket's
+checkout is a simulation with no payment and no physical handoff, and its buyer names are
+self-reported. That is why an imported step never claims a custodian confirmed it.
+
+### Configuration
+
+Set these **on the CraftProof backend**, using the same sale API key configured on the ReMarket
+server. Keep the key out of Git — set its value in the Render dashboard or a local `.env.local`:
+
+| Variable | Purpose |
+|---|---|
+| `REMARKET_API_URL` | ReMarket base URL, e.g. `https://remarket-24rz.onrender.com` |
+| `REMARKET_SALE_API_KEY` | The partner's shared bearer key (**secret**) |
+| `CRAFTPROOF_REMARKET_SYNC_KEY` | Separate secret gating `POST /integrations/remarket/sync` |
+| `REMARKET_SYNC_INTERVAL_SECONDS` | Poll interval, default `300`; `0` disables the poller |
+| `CRAFTPROOF_REMARKET_KEY` | Path to the integration's Ed25519 signing key, kept off the DB volume |
+
+```bash
+cd backend
+source venv/bin/activate
+cp .env.local.example .env.local      # then fill in the real key
+uvicorn main:app --port 8002 --env-file .env.local
+```
+
+The background poller only runs while the service is awake. On a free Render instance that sleeps,
+point an external scheduler at the sync endpoint instead:
+
+```bash
+curl -X POST https://<your-craftproof-backend>/integrations/remarket/sync \
+  -H "X-Integration-Key: $CRAFTPROOF_REMARKET_SYNC_KEY"
+```
+
+### Endpoints added
+
+| Method | Endpoint | Auth | Purpose |
+|---|---|---|---|
+| `GET` | `/integrations/remarket/status` | No | Connection health and import counts (never any part of the key) |
+| `GET` | `/integrations/remarket/imports` | No | Sales already written onto certificates |
+| `POST` | `/integrations/remarket/sync` | `X-Integration-Key` | Run a sync now (for an external scheduler) |
+| `POST` | `/integrations/remarket/sync-as-user` | Bearer | The dashboard's "Check for new sales" button |
+| `GET` | `/integrations/remarket/feed` | Bearer | Read the partner's live feed without importing |
+| `GET` | `/api/verify?codes=A,B,C` | No | Verify up to 50 certificates in one call, for a listing page |
+
+The **ReMarket** page in the web app (`/marketplace`) shows the connection, what has been recorded,
+and what the marketplace is currently reporting.
+
+```bash
+cd backend && source venv/bin/activate
+python3 -m unittest -v test_remarket      # 15 tests
+```
+
 ## 🚀 Quick Start
 
 ### Prerequisites

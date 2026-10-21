@@ -1,5 +1,7 @@
-from contextlib import asynccontextmanager
-from fastapi import FastAPI, Depends, HTTPException
+import asyncio
+import logging
+from contextlib import asynccontextmanager, suppress
+from fastapi import FastAPI, Depends, HTTPException, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
@@ -12,6 +14,7 @@ from keystore import encrypt_private_key, is_envelope, KeyStore
 from security_config import require_jwt_secret, jwt_config_error, INSECURE_DEMO_MODE
 from core import verify_chain_detailed, create_checkpoint, list_checkpoints, get_inclusion_proof
 from record import CustodyRecord, GENESIS_HASH
+import remarket
 from seed import seed as seed_demo_data
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -33,6 +36,26 @@ def seed_demo_if_empty():
         seed_demo_data()
 
 
+async def poll_remarket_sales(interval: int):
+    """Background poller for the ReMarket sales feed.
+
+    A failed poll is logged and retried on the next tick rather than killing
+    the task: the partner runs on a free host that sleeps, so transient 502s
+    are expected and must not silently stop the integration for the rest of
+    the process's life.
+    """
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            result = await asyncio.to_thread(remarket.sync_sales)
+            if result["imported"]:
+                print(f"[remarket] imported {result['imported']} sale(s)")
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logging.exception("[remarket] sale sync failed; will retry next tick")
+
+
 @asynccontextmanager
 async def lifespan(app):
     global _DEMO_MODE_ACTIVE
@@ -47,7 +70,22 @@ async def lifespan(app):
             "endpoint is enabled for the viva demo only. ***"
         )
     seed_demo_if_empty()
-    yield
+
+    poller = None
+    interval = remarket.sync_interval()
+    if remarket.is_configured() and interval > 0:
+        print(f"[remarket] polling {remarket.api_url()} every {interval}s")
+        poller = asyncio.create_task(poll_remarket_sales(interval))
+    elif not remarket.is_configured():
+        print("[remarket] not configured — set REMARKET_API_URL and REMARKET_SALE_API_KEY to enable")
+
+    try:
+        yield
+    finally:
+        if poller:
+            poller.cancel()
+            with suppress(asyncio.CancelledError):
+                await poller
 
 
 _KEYSTORE = KeyStore(ttl=900)
@@ -196,6 +234,14 @@ def _seed_user(conn, user_id: int, password: str | None):
     cached = _KEYSTORE.get(user_id)
     if cached is not None:
         return cached
+    # Integration service accounts (remarket.py) keep their signing key in a
+    # file outside the database. Nothing may sign *as* them through the user
+    # API — refuse clearly rather than fall through to the hex parser below.
+    if enc.startswith("external-key-file:"):
+        raise HTTPException(
+            status_code=403,
+            detail="This is an integration service account and cannot transfer pieces",
+        )
     if is_envelope(enc):
         if not password:
             raise HTTPException(
@@ -285,7 +331,11 @@ def login(req: LoginRequest):
 def get_users():
     conn = get_db()
     try:
-        users = conn.execute("SELECT id, name, role, shop_name FROM users").fetchall()
+        # Integration service accounts (e.g. the ReMarket importer) are not
+        # people and must never appear as a transfer destination.
+        users = conn.execute(
+            "SELECT id, name, role, shop_name FROM users WHERE role != 'integration'"
+        ).fetchall()
         return [{"id": u["id"], "name": u["name"], "role": u["role"], "shop_name": u["shop_name"]} for u in users]
     finally:
         conn.close()
@@ -515,6 +565,116 @@ def verify_object(code: str, req: VerifyObjectRequest):
     finally:
         conn.close()
 
+# ---------- ReMarket marketplace integration ----------
+#
+# CraftProof is the API *client* in this partnership: ReMarket exposes a
+# key-protected sales feed and we poll it. The partner key is used only from
+# this server — it is never sent to the browser and never stored in the DB.
+# See remarket.py for the import rules and their limits.
+
+@app.get("/integrations/remarket/status", tags=["Integrations"],
+         summary="ReMarket connection and import summary")
+def remarket_status():
+    """Whether the ReMarket link is configured, and what it has imported.
+
+    Reports only whether a key is *present* — never any part of its value —
+    so this is safe to render in the public dashboard.
+    """
+    return remarket.integration_status()
+
+
+@app.get("/integrations/remarket/imports", tags=["Integrations"],
+         summary="Sales already imported from ReMarket")
+def remarket_imports(limit: int = Query(50, ge=1, le=200)):
+    return {"imports": remarket.list_imports(limit)}
+
+
+@app.post("/integrations/remarket/sync", tags=["Integrations"],
+          summary="Pull completed ReMarket sales now")
+def remarket_sync(x_integration_key: Optional[str] = Header(default=None)):
+    """Run a sync immediately instead of waiting for the next poll.
+
+    Gated on CRAFTPROOF_REMARKET_SYNC_KEY rather than a user token: this is an
+    operator/scheduler hook, and the CraftProof backend on a free host is only
+    awake intermittently, so an external cron needs to be able to call it.
+    """
+    remarket.require_sync_key(x_integration_key)
+    return remarket.sync_sales()
+
+
+@app.post("/integrations/remarket/sync-as-user", tags=["Integrations"],
+          summary="Pull completed ReMarket sales now (signed-in user)")
+def remarket_sync_as_user(user_id: int = Depends(get_current_user_id)):
+    """The dashboard's 'Sync now' button.
+
+    Same work as /integrations/remarket/sync, authorised by a normal CraftProof
+    session instead of the integration key — so the browser never needs to hold
+    a shared secret. The import rules are identical either way; triggering a
+    sync cannot change what gets imported, only when.
+    """
+    return remarket.sync_sales()
+
+
+@app.get("/integrations/remarket/feed", tags=["Integrations"],
+         summary="Live ReMarket sales feed (server-side proxy)")
+def remarket_feed(
+    after_id: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    user_id: int = Depends(get_current_user_id),
+):
+    """Read the partner's feed without importing anything.
+
+    Exists so the dashboard can show what ReMarket is reporting alongside what
+    CraftProof has already imported. The bearer key stays on this server; the
+    browser authenticates with its own CraftProof token.
+    """
+    with remarket.remarket_client() as client:
+        page = remarket.fetch_sales(client, after_id, limit)
+
+    conn = get_db()
+    try:
+        known = {
+            r["order_id"] for r in conn.execute(
+                "SELECT order_id FROM remarket_imports"
+            ).fetchall()
+        }
+    finally:
+        conn.close()
+
+    for sale in page["sales"]:
+        if isinstance(sale, dict):
+            sale["imported"] = sale.get("order_id") in known
+    return page
+
+
+# ---------- Public verification API for marketplace partners ----------
+
+@app.get("/api/verify", tags=["Public API"],
+         summary="Verify many certificates in one call")
+def api_verify_batch(codes: str = Query(..., description="Comma-separated certificate codes, max 50")):
+    """Batch form of /api/verify/{code}, for a marketplace listing page.
+
+    ReMarket renders many listings at once; one request per certificate turns
+    a page render into N cold-start round trips. Unknown codes come back with
+    ``found: false`` rather than failing the whole batch.
+    """
+    wanted = [c.strip().upper() for c in codes.split(",") if c.strip()]
+    if not wanted:
+        raise HTTPException(status_code=400, detail="Provide at least one certificate code")
+    if len(wanted) > 50:
+        raise HTTPException(status_code=400, detail="At most 50 codes per request")
+
+    results = []
+    for code in dict.fromkeys(wanted):          # de-duplicate, keep order
+        try:
+            results.append(dict(api_verify(code), found=True))
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                raise
+            results.append({"certificate_code": code, "found": False, "authentic": None})
+    return {"results": results}
+
+
 # ---------- Transfer ----------
 
 @app.post("/pieces/{piece_id}/transfer")
@@ -593,6 +753,12 @@ def get_certificate(code: str):
         valid, reason, checks = verify_chain_detailed(piece["id"])
         checks_by_seq = {c["seq_index"]: c for c in checks}
 
+        # Which steps were written by the ReMarket importer rather than
+        # signed by the outgoing custodian. The chain verdict is unchanged —
+        # these records verify like any other — but the UI must not present
+        # a marketplace's word as the previous owner's confirmation.
+        marketplace_records = remarket.imported_record_ids(conn, piece["id"])
+
         timeline = []
         anchored = 0
         for r in records:
@@ -601,6 +767,7 @@ def get_certificate(code: str):
             inclusion = get_inclusion_proof(r["record_hash"])
             if inclusion and inclusion["included"]:
                 anchored += 1
+            order_id = marketplace_records.get(r["id"])
             timeline.append({
                 "seq_index": r["seq_index"],
                 "from_name": r["from_name"],
@@ -610,6 +777,9 @@ def get_certificate(code: str):
                 "record_hash": r["record_hash"],
                 "checks": chk,
                 "checkpoint": inclusion["batch_index"] if inclusion and inclusion["included"] else None,
+                "marketplace": (
+                    {"source": "ReMarket", "order_id": order_id} if order_id else None
+                ),
             })
 
         piece_dict = dict(piece)
@@ -735,6 +905,14 @@ def api_verify(code: str):
             h = conn.execute("SELECT name, shop_name FROM users WHERE id = ?", (piece["current_owner_id"],)).fetchone()
             if h:
                 holder = h["shop_name"] or h["name"]
+        elif records:
+            # The piece left the CraftProof account system — sold to an
+            # external buyer, including every ReMarket import. The last
+            # recorded name is the holder; reporting None here would have
+            # made a marketplace sale look like the piece had vanished.
+            holder = records[-1]["to_name"]
+
+        marketplace = remarket.import_for_piece(conn, piece["id"])
 
         history = []
         anchored = 0
@@ -770,6 +948,20 @@ def api_verify(code: str):
                 "records": len(records),
                 "anchored": anchored,
             },
+            # Present when the latest holder came from a marketplace sale
+            # rather than a custodian-confirmed handover. Partners should
+            # surface the distinction rather than hide it.
+            "marketplace": (
+                {
+                    "source": "ReMarket",
+                    "order_id": marketplace["order_id"],
+                    "buyer_name": marketplace["buyer_name"],
+                    "sold_at": marketplace["completed_at"],
+                    "recorded_at": marketplace["imported_at"],
+                    "reported_by_marketplace": True,
+                }
+                if marketplace else None
+            ),
             "verify_url": f"/c/{piece['certificate_code']}",
         }
     finally:

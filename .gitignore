@@ -26,3 +26,7 @@ Thumbs.db
 # Env
 .env
 .env.local
+
+# Integration signing keys — private halves, never committed
+backend/integration/
+backend/anchoring/

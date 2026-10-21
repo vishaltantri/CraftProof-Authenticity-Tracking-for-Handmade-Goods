@@ -7,6 +7,7 @@ import Certificate from './pages/Certificate'
 import Ledger from './pages/Ledger'
 import HowItWorks from './pages/HowItWorks'
 import Developers from './pages/Developers'
+import Marketplace from './pages/Marketplace'
 
 function Nav() {
   const [user, setUser] = useState(null)
@@ -43,6 +44,7 @@ function Nav() {
       <div className="nav-links">
         <Link to="/how-it-works">How it works</Link>
         <Link to="/ledger">Checkpoints</Link>
+        <Link to="/marketplace">ReMarket</Link>
         <Link to="/developers">API</Link>
         {user ? (
           <>
@@ -80,6 +82,7 @@ function App() {
                 <Route path="/ledger" element={<Ledger />} />
                 <Route path="/how-it-works" element={<HowItWorks />} />
                 <Route path="/developers" element={<Developers />} />
+                <Route path="/marketplace" element={<Marketplace />} />
               </Routes>
             </div>
           }

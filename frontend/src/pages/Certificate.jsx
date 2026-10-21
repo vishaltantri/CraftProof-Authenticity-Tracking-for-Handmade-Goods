@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { CheckCircle, AlertTriangle, Stamp, Clock, Copy, Check } from 'lucide-react'
+import { CheckCircle, AlertTriangle, Stamp, Clock, Copy, Check, Store } from 'lucide-react'
 
 import { API } from '../api'
 
@@ -157,7 +157,9 @@ export default function Certificate() {
                 <div className="timeline-title">
                   {i === 0
                     ? `Crafted by ${event.from_name}`
-                    : `Transferred to ${event.to_name}`
+                    : event.marketplace
+                      ? `Sold on ${event.marketplace.source} to ${event.to_name}`
+                      : `Transferred to ${event.to_name}`
                   }
                 </div>
                 {event.note && event.note !== 'Piece created' && (
@@ -168,6 +170,18 @@ export default function Certificate() {
                 {problem ? (
                   <div style={{ fontSize: '0.82rem', color: 'var(--color-error)', marginTop: '0.25rem', fontFamily: 'var(--font-sans)' }}>
                     ⚠ {problem}
+                  </div>
+                ) : event.marketplace ? (
+                  /* A marketplace told us about this sale; the previous owner did
+                     not confirm it here. The record is signed and sealed like any
+                     other, but saying "confirmed by" would overstate what we know. */
+                  <div style={{ fontSize: '0.8rem', color: 'var(--color-muted)', marginTop: '0.15rem', fontFamily: 'var(--font-sans)' }}>
+                    <Store size={12} style={{ verticalAlign: '-2px', marginRight: '0.3rem' }} />
+                    Reported by {event.marketplace.source} · order {event.marketplace.order_id}
+                    {event.checkpoint ? ` · sealed in checkpoint #${event.checkpoint}` : ''}
+                    <div style={{ fontSize: '0.78rem', color: 'var(--color-faint)', marginTop: '0.1rem' }}>
+                      Recorded from the marketplace, not confirmed by the previous owner.
+                    </div>
                   </div>
                 ) : (
                   <div style={{ fontSize: '0.8rem', color: 'var(--color-success)', marginTop: '0.15rem', fontFamily: 'var(--font-sans)' }}>

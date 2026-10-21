@@ -83,6 +83,33 @@ def init_db():
     )
     ''')
 
+    # ReMarket marketplace integration (remarket.py). order_id is the PRIMARY
+    # KEY, so a replayed sales feed can never append the same sale twice —
+    # idempotence is enforced by the schema, not by application care.
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS remarket_imports (
+        order_id TEXT PRIMARY KEY,
+        piece_id INTEGER NOT NULL REFERENCES pieces(id),
+        record_id INTEGER NOT NULL REFERENCES custody_records(id),
+        certificate_code VARCHAR(16),
+        buyer_name VARCHAR(128),
+        item_title VARCHAR(255),
+        completed_at TEXT,
+        imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
+    # Small key/value store for integration bookkeeping (poll cursor, last
+    # sync time). Deliberately separate from the custody tables: nothing here
+    # is signed, and nothing here affects a verification verdict.
+    c.execute('''
+    CREATE TABLE IF NOT EXISTS integration_state (
+        key VARCHAR(64) PRIMARY KEY,
+        value TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    ''')
+
     c.execute('''
     CREATE TABLE IF NOT EXISTS merkle_batches (
         id INTEGER PRIMARY KEY AUTOINCREMENT,

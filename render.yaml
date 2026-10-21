@@ -22,6 +22,27 @@ services:
         value: /var/data/anchor/anchor_key.pem
       - key: CRAFTPROOF_TEMPLATES_DIR
         value: /var/data/templates
+      # ReMarket marketplace integration (backend/remarket.py).
+      # REMARKET_SALE_API_KEY is the partner's shared secret — set its value in
+      # the Render dashboard, never in this file, which is public in Git.
+      - key: REMARKET_API_URL
+        value: https://remarket-24rz.onrender.com
+      - key: REMARKET_SALE_API_KEY
+        sync: false
+      # Separate secret for POST /integrations/remarket/sync, so whoever may
+      # trigger a sync is not handed the partner's credential.
+      # Generate: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+      - key: CRAFTPROOF_REMARKET_SYNC_KEY
+        sync: false
+      # Seconds between polls; 0 disables the background poller. The free tier
+      # sleeps, so the poller only runs while the service is awake — an
+      # external scheduler hitting the sync endpoint is the reliable path.
+      - key: REMARKET_SYNC_INTERVAL_SECONDS
+        value: "300"
+      # The integration's Ed25519 signing key, kept off the database volume so
+      # a DB copy alone cannot mint imported custody records.
+      - key: CRAFTPROOF_REMARKET_KEY
+        value: /var/data/integration/remarket_signer.key
       # NEVER set CRAFTPROOF_ALLOW_INSECURE_DEMO in a deployed environment:
       # it installs a known demo JWT secret and re-enables /admin/tamper.
 

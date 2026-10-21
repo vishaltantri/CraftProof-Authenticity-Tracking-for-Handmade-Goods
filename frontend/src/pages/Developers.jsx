@@ -91,6 +91,49 @@ if (authentic) {
         </div>
       </Endpoint>
 
+      <h3 style={{ margin: '1.5rem 0 0.75rem' }}>Verify a page of listings at once</h3>
+      <Endpoint method="GET" path="/api/verify?codes=A,B,C">
+        A marketplace rendering a grid of listings would otherwise make one request per
+        certificate. This takes up to 50 codes and answers them together. Codes that do not
+        exist come back with <code>found: false</code> instead of failing the whole batch.
+        <div style={{ marginTop: '0.75rem' }}>
+          <CodeBlock>{`curl '${API}/api/verify?codes=KOODE0LL,AB12CD34,NOPE0000'`}</CodeBlock>
+          <CodeBlock>{`{
+  "results": [
+    { "certificate_code": "KOODE0LL", "found": true, "authentic": true,
+      "current_holder": "Asha Rao", "marketplace": { "source": "ReMarket", ... } },
+    { "certificate_code": "NOPE0000", "found": false, "authentic": null }
+  ]
+}`}</CodeBlock>
+        </div>
+      </Endpoint>
+
+      <h3 style={{ margin: '1.5rem 0 0.75rem' }}>Marketplace sales</h3>
+      <p style={{ color: 'var(--color-muted)', lineHeight: 1.7, marginTop: 0 }}>
+        CraftProof reads completed sales from <Link to="/marketplace">ReMarket</Link> and records
+        the buyer as the new holder. Responses carry a <code>marketplace</code> block whenever a
+        step came from a marketplace rather than from the previous owner — show that distinction
+        to your users rather than hiding it, because a marketplace sale is a report, not a
+        custodian's confirmation.
+      </p>
+      <Endpoint method="GET" path="/integrations/remarket/status">
+        Whether the ReMarket link is configured, how many sales it has recorded and when it last
+        checked. Reports only whether a key is present, never its value. No auth.
+      </Endpoint>
+      <Endpoint method="GET" path="/integrations/remarket/imports">
+        The sales already written onto certificates — order id, certificate code, buyer and the
+        time CraftProof recorded it. No auth.
+      </Endpoint>
+      <Endpoint method="POST" path="/integrations/remarket/sync">
+        Run a sync immediately instead of waiting for the next poll. Send the shared
+        <code> X-Integration-Key</code> header. Intended for an external scheduler, since a free-tier
+        backend sleeps and its own poller only runs while it is awake.
+        <div style={{ marginTop: '0.75rem' }}>
+          <CodeBlock>{`curl -X POST ${API}/integrations/remarket/sync \\
+  -H "X-Integration-Key: $CRAFTPROOF_REMARKET_SYNC_KEY"`}</CodeBlock>
+        </div>
+      </Endpoint>
+
       <h3 style={{ margin: '1.5rem 0 0.75rem' }}>Full detail</h3>
       <Endpoint method="GET" path="/c/{code}">
         The complete certificate exactly as the <Link to={`/c/KOODE0LL`}>public certificate page</Link> renders it:

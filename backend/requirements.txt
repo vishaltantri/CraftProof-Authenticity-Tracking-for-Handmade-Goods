@@ -6,5 +6,7 @@ bcrypt
 pydantic
 numpy
 Pillow
+# ReMarket marketplace integration (remarket.py): server-side HTTP client
+httpx
 # optional but recommended: argon2-cffi (Argon2id KDF for key envelopes;
 # falls back to PBKDF2-SHA256 with 1.2M iterations when absent)
